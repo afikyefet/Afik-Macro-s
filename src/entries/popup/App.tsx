@@ -395,10 +395,18 @@ function App() {
   return (
     <div className="app-container">
       <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.SMALL} className="app-content">
+        {/* Header Section - Minimal */}
         <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER} className="header-section">
-          <Heading type={Heading.types.H2} style={{ margin: 0 }}>Macro Manager</Heading>
-          <MenuButton
-            component={() => <IconButton icon="MoreVertical" ariaLabel="More options" size={IconButton.sizes.SMALL} />}
+          <Search
+            ref={searchInputRef}
+            placeholder="Search macros..."
+            value={searchQuery}
+            onChange={(value: string) => setSearchQuery(value)}
+            size="medium"
+            className="search-input"
+          />
+           <MenuButton
+            component={() => <IconButton icon="MoreVertical" ariaLabel="More options" size={IconButton.sizes.SMALL} kind={IconButton.kinds.TERTIARY} />}
             ariaLabel="More options"
             size={MenuButton.sizes.SMALL}
           >
@@ -409,150 +417,114 @@ function App() {
           </MenuButton>
         </Flex>
 
-        <Flex gap={Flex.gaps.XS} align={Flex.align.CENTER}>
-          <Search
-            ref={searchInputRef}
-            placeholder="Search macros... (Ctrl+F)"
-            value={searchQuery}
-            onChange={(value: string) => setSearchQuery(value)}
-            size="small"
-            className="search-input"
-          />
-          <Button
-            onClick={() => handleOpenDialog()}
-            kind={Button.kinds.PRIMARY}
-            size={Button.sizes.XXS}
-            ariaLabel="New macro (Ctrl+N)"
-          >
-            + New
-          </Button>
+        {/* Filters & Tags - Collapsible or Minimal */}
+        <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS}>
+             <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER}>
+                 <Flex gap={Flex.gaps.XS} align={Flex.align.CENTER} className="sort-section">
+                  <Dropdown
+                    size={Dropdown.sizes.SMALL}
+                    placeholder="Sort"
+                    value={{ label: sortOrder === "usage" ? "Most Used" : sortOrder === "recent" ? "Recent" : "A-Z", value: sortOrder }}
+                    options={[
+                      { label: "Most Used", value: "usage" },
+                      { label: "Recently Used", value: "recent" },
+                      { label: "Alphabetical", value: "alphabetical" },
+                    ]}
+                    onChange={(option: any) => option && setSortOrder(option.value as SortOrder)}
+                    className="sort-dropdown"
+                  />
+                </Flex>
+                 <Button
+                    onClick={() => handleOpenDialog()}
+                    kind={Button.kinds.PRIMARY}
+                    size={Button.sizes.SMALL}
+                    ariaLabel="New macro (Ctrl+N)"
+                  >
+                    + New
+                  </Button>
+             </Flex>
+
+            {allTags.length > 0 && (
+              <Flex gap={Flex.gaps.XS} wrap className="tags-section">
+                {allTags.map((tag: string) => (
+                  <div key={tag} style={{ cursor: "pointer" }}>
+                    <Chips
+                      label={tag}
+                      color={selectedTags.includes(tag) ? Chips.colors.POSITIVE : Chips.colors.NEUTRAL}
+                      onClick={() => handleTagFilter(tag)}
+                      className="tag-chip"
+                    />
+                  </div>
+                ))}
+              </Flex>
+            )}
         </Flex>
-
-        <Flex gap={Flex.gaps.XS} align={Flex.align.CENTER} className="sort-section">
-          <Text type={Text.types.TEXT2} style={{ fontSize: "11px", whiteSpace: "nowrap" }}>Sort:</Text>
-          <div className="dropdown-wrapper">
-            <Dropdown
-              size={Dropdown.sizes.SMALL}
-              placeholder="Sort by"
-              value={{ label: sortOrder === "usage" ? "Most Used" : sortOrder === "recent" ? "Recently Used" : "Alphabetical", value: sortOrder }}
-              options={[
-                { label: "Most Used", value: "usage" },
-                { label: "Recently Used", value: "recent" },
-                { label: "Alphabetical", value: "alphabetical" },
-              ]}
-              onChange={(option: any) => option && setSortOrder(option.value as SortOrder)}
-            />
-          </div>
-        </Flex>
-
-        {allTags.length > 0 && (
-          <Flex gap={Flex.gaps.XS} wrap className="tags-section">
-            {allTags.map((tag: string) => (
-              <div key={tag} style={{ cursor: "pointer" }}>
-                <Chips
-                  label={tag}
-                  color={selectedTags.includes(tag) ? Chips.colors.POSITIVE : Chips.colors.NEUTRAL}
-                  onClick={() => handleTagFilter(tag)}
-                />
-              </div>
-            ))}
-          </Flex>
-        )}
-
-        <Divider />
 
         <div className="macro-list-container" ref={listRef}>
           {filteredMacros.length === 0 ? (
             <EmptyState />
           ) : (
-            <List>
+            <div className="macro-grid">
               {filteredMacros.map((macro: Macro, index: number) => (
                 <div
                   key={macro.id}
-                  style={{
-                    backgroundColor: selectedIndex === index ? "var(--color-background-hover)" : undefined,
-                  }}
+                  className={`macro-card ${selectedIndex === index ? "selected" : ""}`}
+                  onClick={() => handleQuickInsert(macro)}
                 >
-                  <ListItem className="macro-item">
-                    <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.SMALL} className="macro-card-content">
-                      {/* Header: Name + Usage Badge */}
-                      <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER} className="macro-header">
-                        <Heading type={Heading.types.H3} style={{ margin: 0, fontSize: "14px", fontWeight: "600" }}>
+                    <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS} className="macro-card-inner">
+                      <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.START}>
+                        <Text type={Text.types.TEXT1} style={{ fontWeight: "600", color: "var(--primary-text-color)" }}>
                           {macro.name}
-                        </Heading>
-                        {macro.usageCount && macro.usageCount > 0 && (
-                          <Chips
-                            label={`${macro.usageCount}x`}
-                            color={Chips.colors.NEUTRAL}
-                          />
-                        )}
+                        </Text>
+                         <div onClick={(e) => e.stopPropagation()}>
+                            <MenuButton
+                              component={() => (
+                                <IconButton
+                                  icon="MoreHorizontal"
+                                  kind={IconButton.kinds.TERTIARY}
+                                  size={IconButton.sizes.XS}
+                                  ariaLabel="Actions"
+                                />
+                              )}
+                              size={MenuButton.sizes.SMALL}
+                              ariaLabel="More actions"
+                            >
+                              <Menu id={`macro-menu-${macro.id}`}>
+                                <MenuItem title="Duplicate" onClick={() => handleDuplicateMacro(macro)} />
+                                <MenuItem title="Edit" onClick={() => handleOpenDialog(macro)} />
+                                <MenuItem
+                                  title="Delete"
+                                  onClick={() => setDeleteConfirmId(macro.id)}
+                                />
+                              </Menu>
+                            </MenuButton>
+                         </div>
                       </Flex>
 
-                      {/* Content Preview */}
                       <Text
                         type={Text.types.TEXT2}
-                        color={Text.colors.SECONDARY}
                         className="macro-content-preview"
-                        style={{
-                          fontSize: "12px",
-                          lineHeight: "1.4",
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                        }}
                       >
                         {macro.content}
                       </Text>
 
-                      {/* Tags */}
-                      {macro.tags.length > 0 && (
-                        <Flex gap={Flex.gaps.XS} wrap className="macro-tags">
-                          {macro.tags.map((tag) => (
-                            <Chips key={tag} label={tag} />
-                          ))}
-                        </Flex>
-                      )}
-
-                      {/* Actions */}
-                      <Flex gap={Flex.gaps.XS} className="macro-actions">
-                        <Button
-                          onClick={() => handleQuickInsert(macro)}
-                          kind={Button.kinds.PRIMARY}
-                          size={Button.sizes.XXS}
-                          ariaLabel="Insert macro"
-                          className="insert-button"
-                        >
-                          Insert
-                        </Button>
-                        <MenuButton
-                          component={() => (
-                            <Button
-                              kind={Button.kinds.TERTIARY}
-                              size={Button.sizes.XXS}
-                              ariaLabel="More actions"
-                            >
-                              ⋯
-                            </Button>
-                          )}
-                          size={MenuButton.sizes.SMALL}
-                          ariaLabel="More actions"
-                        >
-                          <Menu id={`macro-menu-${macro.id}`}>
-                            <MenuItem title="Duplicate" onClick={() => handleDuplicateMacro(macro)} />
-                            <MenuItem title="Edit" onClick={() => handleOpenDialog(macro)} />
-                            <MenuItem
-                              title="Delete"
-                              onClick={() => setDeleteConfirmId(macro.id)}
-                            />
-                          </Menu>
-                        </MenuButton>
+                      <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER} style={{ marginTop: "4px" }}>
+                         <Flex gap={Flex.gaps.XS} wrap>
+                            {macro.tags.slice(0, 2).map((tag) => (
+                              <span key={tag} className="mini-tag">{tag}</span>
+                            ))}
+                            {macro.tags.length > 2 && <span className="mini-tag">+{macro.tags.length - 2}</span>}
+                         </Flex>
+                         {macro.usageCount !== undefined && macro.usageCount > 0 && (
+                            <Text type={Text.types.TEXT2} style={{ fontSize: "10px", color: "var(--secondary-text-color)" }}>
+                                {macro.usageCount} uses
+                            </Text>
+                         )}
                       </Flex>
                     </Flex>
-                  </ListItem>
                 </div>
               ))}
-            </List>
+            </div>
           )}
         </div>
       </Flex>
@@ -578,29 +550,31 @@ function App() {
         <ModalContent>
           <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
             <TextField
-              placeholder="Macro name"
+              placeholder="Macro Name"
               value={macroName}
               onChange={(value: string) => setMacroName(value)}
-              title="Name"
-              required
+              size={TextField.sizes.MEDIUM}
+              autoFocus
             />
             <TextArea
-              placeholder="Macro content (use {{date}}, {{time}}, {{clipboard}}, etc.)"
+              placeholder="Content..."
               value={macroContent}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMacroContent(e.target.value)}
-              label="Content"
-              rows={8}
+              rows={6}
             />
-            <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS}>
-              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", fontWeight: "bold" }}>
-                Available Variables:
-              </Text>
-              {AVAILABLE_VARIABLES.map((v) => (
-                <Text key={v.variable} type={Text.types.TEXT2} style={{ fontSize: "10px" }}>
-                  <code>{v.variable}</code> - {v.description}
+             <div className="variables-hint">
+                <Text type={Text.types.TEXT2} style={{ fontSize: "11px", fontWeight: "600", marginBottom: "4px" }}>
+                  Variables:
                 </Text>
-              ))}
-            </Flex>
+                <div className="variables-list">
+                  {AVAILABLE_VARIABLES.map((v) => (
+                    <span key={v.variable} className="variable-chip" title={v.description}>
+                      {v.variable}
+                    </span>
+                  ))}
+                </div>
+            </div>
+
             <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.SMALL}>
               <Text type={Text.types.TEXT2}>Tags</Text>
               <Flex gap={Flex.gaps.XS} wrap>
@@ -634,7 +608,7 @@ function App() {
                 </Button>
               </Flex>
             </Flex>
-            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL}>
+            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL} style={{ marginTop: "16px" }}>
               <Button onClick={handleCloseDialog} kind={Button.kinds.TERTIARY}>
                 Cancel
               </Button>
@@ -643,7 +617,7 @@ function App() {
                 kind={Button.kinds.PRIMARY}
                 disabled={!macroName.trim() || !macroContent.trim()}
               >
-                {editingMacro ? "Update" : "Create"}
+                {editingMacro ? "Save Changes" : "Create Macro"}
               </Button>
             </Flex>
           </Flex>
@@ -686,7 +660,7 @@ function App() {
                 id="import-merge"
               />
               <label htmlFor="import-merge" style={{ fontSize: "12px" }}>
-                Merge with existing macros (uncheck to replace all)
+                Merge with existing macros
               </label>
             </Flex>
             <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL}>
@@ -722,7 +696,7 @@ function App() {
         <ModalContent>
           <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
             <Text type={Text.types.TEXT1}>
-              Are you sure you want to delete this macro? This action cannot be undone.
+              Are you sure you want to delete this macro?
             </Text>
             <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL}>
               <Button
