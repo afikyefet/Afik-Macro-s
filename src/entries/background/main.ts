@@ -1,6 +1,7 @@
 import browser from "webextension-polyfill";
 import { STORAGE_KEY } from "../../types/macro";
-import { getAllMacros } from "../../utils/storage";
+import { getAllMacros, incrementMacroUsage } from "../../utils/storage";
+import { processMacroVariables } from "../../utils/variables";
 
 const CONTEXT_MENU_PARENT_ID = "macro-manager-parent";
 
@@ -106,12 +107,18 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
     if (macro) {
       try {
+        // Process variables in macro content
+        const processedContent = await processMacroVariables(macro.content);
+
         // Inject and execute the insert function
         await browser.scripting.executeScript({
           target: { tabId: tab.id },
           func: insertTextAtCursor,
-          args: [macro.content],
+          args: [processedContent],
         });
+
+        // Track usage
+        await incrementMacroUsage(macro.id);
       } catch (error) {
         console.error("Error inserting macro:", error);
       }

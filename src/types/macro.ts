@@ -5,6 +5,8 @@ export interface Macro {
     tags: string[];
     createdAt: number;
     updatedAt: number;
+    usageCount?: number;
+    lastUsed?: number;
 }
 
 export interface MacroStorage {
