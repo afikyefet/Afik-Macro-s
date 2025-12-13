@@ -6,7 +6,7 @@ function App() {
 
   return (
     <div className="logo">
-      <img src={logoImageUrl} height="50" alt="" />
+      {/* <img src={logoImageUrl} height="50" alt="" /> */}
     </div>
   );
 }
