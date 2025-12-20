@@ -7,6 +7,10 @@ export interface Macro {
     updatedAt: number;
     usageCount?: number;
     lastUsed?: number;
+    // Context metadata for smart suggestions
+    fieldTypes?: string[]; // e.g., ['email', 'name', 'address']
+    domains?: string[]; // e.g., ['gmail.com', 'github.com']
+    contextUsage?: Record<string, number>; // Track usage by context (domain + fieldType)
 }
 
 export interface MacroStorage {

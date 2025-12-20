@@ -90,6 +90,45 @@ export async function incrementMacroUsage(id: string): Promise<void> {
 }
 
 /**
+ * Track macro usage in a specific context
+ */
+export async function trackMacroContextUsage(
+  macroId: string,
+  contextKey: string,
+  fieldType: string,
+  domain: string
+): Promise<void> {
+  const macros = await getAllMacros();
+  const macro = macros.find((m) => m.id === macroId);
+  
+  if (macro) {
+    // Initialize context usage if needed
+    if (!macro.contextUsage) {
+      macro.contextUsage = {};
+    }
+    macro.contextUsage[contextKey] = (macro.contextUsage[contextKey] || 0) + 1;
+
+    // Update field types
+    if (!macro.fieldTypes) {
+      macro.fieldTypes = [];
+    }
+    if (!macro.fieldTypes.includes(fieldType)) {
+      macro.fieldTypes.push(fieldType);
+    }
+
+    // Update domains
+    if (!macro.domains) {
+      macro.domains = [];
+    }
+    if (!macro.domains.includes(domain)) {
+      macro.domains.push(domain);
+    }
+
+    await saveMacro(macro);
+  }
+}
+
+/**
  * Export all macros as JSON string
  */
 export async function exportMacros(): Promise<string> {

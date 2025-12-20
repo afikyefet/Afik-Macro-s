@@ -4,10 +4,7 @@ import {
   Divider,
   Dropdown,
   Flex,
-  Heading,
   IconButton,
-  List,
-  ListItem,
   Menu,
   MenuButton,
   MenuItem,
@@ -18,7 +15,7 @@ import {
   Text,
   TextArea,
   TextField,
-  Toast,
+  Toast
 } from "@vibe/core";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Macro } from "../../types/macro";
@@ -61,6 +58,8 @@ function App() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMerge, setImportMerge] = useState(true);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [autocompleteEnabled, setAutocompleteEnabled] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -73,7 +72,22 @@ function App() {
   useEffect(() => {
     loadMacros();
     loadTags();
+    loadSettings();
   }, []);
+
+  // Load settings
+  const loadSettings = async () => {
+    const result = await chrome.storage.sync.get('autocompleteEnabled');
+    setAutocompleteEnabled(result.autocompleteEnabled !== false); // Default to true
+  };
+
+  // Save settings
+  const saveSettings = async (enabled: boolean) => {
+    await chrome.storage.sync.set({ autocompleteEnabled: enabled });
+    setAutocompleteEnabled(enabled);
+    // Content scripts will automatically pick up the storage change
+    showToast(enabled ? "Smart suggestions enabled" : "Smart suggestions disabled", "positive");
+  };
 
   // Listen for storage changes
   useEffect(() => {
@@ -302,6 +316,20 @@ function App() {
     }
   };
 
+  const handleCopyMacro = async (macro: Macro) => {
+    try {
+      const processedContent = await processMacroVariables(macro.content);
+
+      await navigator.clipboard.writeText(processedContent);
+
+      await incrementMacroUsage(macro.id);
+      showToast(`Macro "${macro.name}" copied to clipboard`, "positive");
+    } catch (error) {
+      console.error("Error copying macro:", error);
+      showToast("Failed to copy macro to clipboard", "negative");
+    }
+  };
+
   const handleExport = async () => {
     try {
       const json = await exportMacros();
@@ -405,7 +433,7 @@ function App() {
             size="medium"
             className="search-input"
           />
-           <MenuButton
+          <MenuButton
             component={() => <IconButton icon="MoreVertical" ariaLabel="More options" size={IconButton.sizes.SMALL} kind={IconButton.kinds.TERTIARY} />}
             ariaLabel="More options"
             size={MenuButton.sizes.SMALL}
@@ -413,115 +441,110 @@ function App() {
             <Menu id="header-menu">
               <MenuItem title="Export macros" onClick={handleExport} />
               <MenuItem title="Import macros" onClick={() => setShowImportModal(true)} />
+              <MenuItem title="Settings" onClick={() => setShowSettingsModal(true)} />
             </Menu>
           </MenuButton>
         </Flex>
 
         {/* Filters & Tags - Collapsible or Minimal */}
         <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS}>
-             <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER}>
-                 <Flex gap={Flex.gaps.XS} align={Flex.align.CENTER} className="sort-section">
-                  <Dropdown
-                    size={Dropdown.sizes.SMALL}
-                    placeholder="Sort"
-                    value={{ label: sortOrder === "usage" ? "Most Used" : sortOrder === "recent" ? "Recent" : "A-Z", value: sortOrder }}
-                    options={[
-                      { label: "Most Used", value: "usage" },
-                      { label: "Recently Used", value: "recent" },
-                      { label: "Alphabetical", value: "alphabetical" },
-                    ]}
-                    onChange={(option: any) => option && setSortOrder(option.value as SortOrder)}
-                    className="sort-dropdown"
-                  />
-                </Flex>
-                 <Button
-                    onClick={() => handleOpenDialog()}
-                    kind={Button.kinds.PRIMARY}
-                    size={Button.sizes.SMALL}
-                    ariaLabel="New macro (Ctrl+N)"
-                  >
-                    + New
-                  </Button>
-             </Flex>
+          <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER}>
+            <Flex gap={Flex.gaps.XS} align={Flex.align.CENTER} className="sort-section">
+              <Dropdown
+                size={Dropdown.sizes.SMALL}
+                placeholder="Sort"
+                value={{ label: sortOrder === "usage" ? "Most Used" : sortOrder === "recent" ? "Recent" : "A-Z", value: sortOrder }}
+                options={[
+                  { label: "Most Used", value: "usage" },
+                  { label: "Recently Used", value: "recent" },
+                  { label: "Alphabetical", value: "alphabetical" },
+                ]}
+                onChange={(option: any) => option && setSortOrder(option.value as SortOrder)}
+                className="sort-dropdown"
+              />
+            </Flex>
+            <Button
+              onClick={() => handleOpenDialog()}
+              kind={Button.kinds.PRIMARY}
+              size={Button.sizes.SMALL}
+              ariaLabel="New macro (Ctrl+N)"
+            >
+              + New
+            </Button>
+          </Flex>
 
-            {allTags.length > 0 && (
-              <Flex gap={Flex.gaps.XS} wrap className="tags-section">
-                {allTags.map((tag: string) => (
-                  <div key={tag} style={{ cursor: "pointer" }}>
-                    <Chips
-                      label={tag}
-                      color={selectedTags.includes(tag) ? Chips.colors.POSITIVE : Chips.colors.NEUTRAL}
-                      onClick={() => handleTagFilter(tag)}
-                      className="tag-chip"
-                    />
-                  </div>
-                ))}
-              </Flex>
-            )}
+          {allTags.length > 0 && (
+            <Flex gap={Flex.gaps.XS} wrap className="tags-section">
+              {allTags.map((tag: string) => (
+                <div key={tag} style={{ cursor: "pointer" }}>
+                  <Chips
+                    label={tag}
+                    color={selectedTags.includes(tag) ? Chips.colors.POSITIVE : Chips.colors.NEUTRAL}
+                    onClick={() => handleTagFilter(tag)}
+                    className="tag-chip"
+                  />
+                </div>
+              ))}
+            </Flex>
+          )}
         </Flex>
 
         <div className="macro-list-container" ref={listRef}>
           {filteredMacros.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className="macro-grid">
+            <div className="macro-list">
               {filteredMacros.map((macro: Macro, index: number) => (
                 <div
                   key={macro.id}
                   className={`macro-card ${selectedIndex === index ? "selected" : ""}`}
-                  onClick={() => handleQuickInsert(macro)}
                 >
-                    <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS} className="macro-card-inner">
-                      <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.START}>
-                        <Text type={Text.types.TEXT1} style={{ fontWeight: "600", color: "var(--primary-text-color)" }}>
-                          {macro.name}
-                        </Text>
-                         <div onClick={(e) => e.stopPropagation()}>
-                            <MenuButton
-                              component={() => (
-                                <IconButton
-                                  icon="MoreHorizontal"
-                                  kind={IconButton.kinds.TERTIARY}
-                                  size={IconButton.sizes.XS}
-                                  ariaLabel="Actions"
-                                />
-                              )}
-                              size={MenuButton.sizes.SMALL}
-                              ariaLabel="More actions"
-                            >
-                              <Menu id={`macro-menu-${macro.id}`}>
-                                <MenuItem title="Duplicate" onClick={() => handleDuplicateMacro(macro)} />
-                                <MenuItem title="Edit" onClick={() => handleOpenDialog(macro)} />
-                                <MenuItem
-                                  title="Delete"
-                                  onClick={() => setDeleteConfirmId(macro.id)}
-                                />
-                              </Menu>
-                            </MenuButton>
-                         </div>
-                      </Flex>
-
-                      <Text
-                        type={Text.types.TEXT2}
-                        className="macro-content-preview"
-                      >
-                        {macro.content}
+                  <div className="macro-card-content" onClick={() => handleCopyMacro(macro)}>
+                    <div className="macro-header">
+                      <Text type={Text.types.TEXT1} className="macro-name">
+                        {macro.name}
                       </Text>
+                      {macro.usageCount !== undefined && macro.usageCount > 0 && (
+                        <span className="macro-usage">{macro.usageCount} uses</span>
+                      )}
+                    </div>
 
-                      <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER} style={{ marginTop: "4px" }}>
-                         <Flex gap={Flex.gaps.XS} wrap>
-                            {macro.tags.slice(0, 2).map((tag) => (
-                              <span key={tag} className="mini-tag">{tag}</span>
-                            ))}
-                            {macro.tags.length > 2 && <span className="mini-tag">+{macro.tags.length - 2}</span>}
-                         </Flex>
-                         {macro.usageCount !== undefined && macro.usageCount > 0 && (
-                            <Text type={Text.types.TEXT2} style={{ fontSize: "10px", color: "var(--secondary-text-color)" }}>
-                                {macro.usageCount} uses
-                            </Text>
-                         )}
+                    <Text type={Text.types.TEXT2} className="macro-content-preview">
+                      {macro.content}
+                    </Text>
+
+                    {macro.tags.length > 0 && (
+                      <Flex gap={Flex.gaps.XS} wrap className="macro-tags">
+                        {macro.tags.slice(0, 3).map((tag) => (
+                          <span key={tag} className="mini-tag">{tag}</span>
+                        ))}
+                        {macro.tags.length > 3 && <span className="mini-tag">+{macro.tags.length - 3}</span>}
                       </Flex>
-                    </Flex>
+                    )}
+                  </div>
+
+                  <div className="macro-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="action-button edit-button"
+                      onClick={() => handleOpenDialog(macro)}
+                      aria-label="Edit macro"
+                      title="Edit macro"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M11.333 2.00001C11.5084 1.82464 11.7163 1.68576 11.9448 1.59197C12.1733 1.49818 12.4176 1.45142 12.6643 1.45468C12.911 1.45794 13.1541 1.51115 13.3795 1.61119C13.6049 1.71123 13.8078 1.8558 13.9762 2.03715C14.1446 2.2185 14.2747 2.43258 14.3589 2.66618C14.4431 2.89978 14.4794 3.14808 14.4654 3.39574C14.4514 3.6434 14.3874 3.88524 14.2777 4.10667C14.168 4.3281 14.0151 4.5245 13.828 4.68401L13.333 5.17901L10.828 2.67401L11.333 2.00001ZM9.885 3.44701L2.333 11H4.333V13H6.333V11H8.333L9.885 3.44701Z" fill="currentColor" />
+                      </svg>
+                    </button>
+                    <button
+                      className="action-button delete-button"
+                      onClick={() => setDeleteConfirmId(macro.id)}
+                      aria-label="Delete macro"
+                      title="Delete macro"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6.5 1.5C6.5 1.22386 6.72386 1 7 1H9C9.27614 1 9.5 1.22386 9.5 1.5V2.5H12.5C12.7761 2.5 13 2.72386 13 3C13 3.27614 12.7761 3.5 12.5 3.5H3.5C3.22386 3.5 3 3.27614 3 3C3 2.72386 3.22386 2.5 3.5 2.5H6.5V1.5ZM4.5 4.5H11.5L11.1464 12.8536C11.1133 13.4079 10.6579 13.85 10.1036 13.85H5.89645C5.34207 13.85 4.88672 13.4079 4.85355 12.8536L4.5 4.5Z" fill="currentColor" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -562,17 +585,17 @@ function App() {
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMacroContent(e.target.value)}
               rows={6}
             />
-             <div className="variables-hint">
-                <Text type={Text.types.TEXT2} style={{ fontSize: "11px", fontWeight: "600", marginBottom: "4px" }}>
-                  Variables:
-                </Text>
-                <div className="variables-list">
-                  {AVAILABLE_VARIABLES.map((v) => (
-                    <span key={v.variable} className="variable-chip" title={v.description}>
-                      {v.variable}
-                    </span>
-                  ))}
-                </div>
+            <div className="variables-hint">
+              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", fontWeight: "600", marginBottom: "4px" }}>
+                Variables:
+              </Text>
+              <div className="variables-list">
+                {AVAILABLE_VARIABLES.map((v) => (
+                  <span key={v.variable} className="variable-chip" title={v.description}>
+                    {v.variable}
+                  </span>
+                ))}
+              </div>
             </div>
 
             <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.SMALL}>
@@ -711,6 +734,65 @@ function App() {
                 color={Button.colors.NEGATIVE}
               >
                 Delete
+              </Button>
+            </Flex>
+          </Flex>
+        </ModalContent>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        id="settings-modal"
+        show={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        width="default"
+      >
+        <ModalHeader title="Settings" />
+        <ModalContent>
+          <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
+            <Text type={Text.types.TEXT1} style={{ fontWeight: "600" }}>
+              Smart Features
+            </Text>
+            <Flex align={Flex.align.CENTER} gap={Flex.gaps.SMALL} justify={Flex.justify.SPACE_BETWEEN}>
+              <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS} style={{ flex: 1 }}>
+                <Text type={Text.types.TEXT1} style={{ fontWeight: "500" }}>
+                  Auto-suggest & Tab Completion
+                </Text>
+                <Text type={Text.types.TEXT2} color={Text.colors.SECONDARY}>
+                  Show macro suggestions as you type and enable Tab completion
+                </Text>
+              </Flex>
+              <input
+                type="checkbox"
+                checked={autocompleteEnabled}
+                onChange={(e) => saveSettings(e.target.checked)}
+                style={{ width: "20px", height: "20px", cursor: "pointer" }}
+              />
+            </Flex>
+            <Divider />
+            <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS}>
+              <Text type={Text.types.TEXT2} style={{ fontSize: "12px", color: Text.colors.SECONDARY }}>
+                <strong>Features:</strong>
+              </Text>
+              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
+                • Type macro name and press Tab to expand
+              </Text>
+              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
+                • See suggestions in a floating overlay
+              </Text>
+              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
+                • Context-aware suggestions based on field type
+              </Text>
+              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
+                • Keyboard navigation (Arrow keys, Enter, Esc)
+              </Text>
+            </Flex>
+            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL} style={{ marginTop: "16px" }}>
+              <Button
+                onClick={() => setShowSettingsModal(false)}
+                kind={Button.kinds.TERTIARY}
+              >
+                Close
               </Button>
             </Flex>
           </Flex>

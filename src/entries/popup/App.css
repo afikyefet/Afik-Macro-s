@@ -15,8 +15,8 @@
 
 html,
 body {
-  width: 360px; /* Slightly wider for better layout */
-  height: 500px; /* Taller */
+  width: 400px;
+  height: 600px;
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -33,7 +33,7 @@ body {
 .app-container {
   width: 100%;
   height: 100%;
-  padding: 16px;
+  padding: 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -87,30 +87,31 @@ body {
   height: 24px !important;
 }
 
-/* Macro Grid */
+/* Macro List */
 .macro-list-container {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding-right: 4px; /* Space for scrollbar */
+  padding-right: 4px;
   margin-right: -4px;
 }
 
-.macro-grid {
+.macro-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .macro-card {
   background-color: var(--surface-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 12px;
-  cursor: pointer;
+  overflow: hidden;
   transition: all 0.2s ease;
   position: relative;
   box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
 }
 
 .macro-card:hover {
@@ -124,30 +125,119 @@ body {
   background-color: #f0f7ff;
 }
 
-.macro-card-inner {
-  width: 100%;
+.macro-card-content {
+  padding: 14px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.macro-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.macro-name {
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  color: var(--text-primary) !important;
+  flex: 1;
+  margin: 0;
+}
+
+.macro-usage {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background-color: var(--background-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 .macro-content-preview {
   font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 11px !important;
+  font-size: 12px !important;
   background-color: var(--background-color);
-  padding: 6px;
-  border-radius: 4px;
+  padding: 8px;
+  border-radius: 6px;
   color: var(--text-secondary) !important;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+  margin: 8px 0;
+  max-height: 60px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  margin: 4px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.macro-tags {
+  margin-top: 8px;
+  gap: 4px;
+}
+
+.macro-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--background-color);
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.action-button {
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  transition: all 0.2s ease;
+}
+
+.action-button:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.action-button:active {
+  transform: scale(0.95);
+}
+
+.edit-button:hover {
+  color: var(--primary-color) !important;
+  background-color: rgba(0, 115, 230, 0.1) !important;
+}
+
+.delete-button:hover {
+  color: #dc2626 !important;
+  background-color: rgba(220, 38, 38, 0.1) !important;
+}
+
+.action-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .mini-tag {
   font-size: 10px;
-  background-color: var(--background-color);
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
+  background-color: #e0e7ff;
+  padding: 3px 8px;
+  border-radius: 12px;
+  color: #4338ca;
+  border: none;
+  font-weight: 500;
+  display: inline-block;
 }
 
 /* Variables Hint */
