@@ -1,22 +1,3 @@
-import {
-  Button,
-  Chips,
-  Divider,
-  Dropdown,
-  Flex,
-  IconButton,
-  Menu,
-  MenuButton,
-  MenuItem,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  Search,
-  Text,
-  TextArea,
-  TextField,
-  Toast
-} from "@vibe/core";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Macro } from "../../types/macro";
 import {
@@ -68,56 +49,35 @@ function App() {
     setTimeout(() => setToast({ open: false, message: "", type: "normal" }), 3000);
   }, []);
 
-  // Load macros on mount
   useEffect(() => {
     loadMacros();
     loadTags();
     loadSettings();
   }, []);
 
-  // Load settings
-  const loadSettings = async () => {
-    const result = await chrome.storage.sync.get('autocompleteEnabled');
-    setAutocompleteEnabled(result.autocompleteEnabled !== false); // Default to true
-  };
-
-  // Save settings
-  const saveSettings = async (enabled: boolean) => {
-    await chrome.storage.sync.set({ autocompleteEnabled: enabled });
-    setAutocompleteEnabled(enabled);
-    // Content scripts will automatically pick up the storage change
-    showToast(enabled ? "Smart suggestions enabled" : "Smart suggestions disabled", "positive");
-  };
-
-  // Listen for storage changes
   useEffect(() => {
     const handleStorageChange = () => {
       loadMacros();
       loadTags();
     };
-
     chrome.storage.onChanged.addListener(handleStorageChange);
     return () => {
       chrome.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
 
-  // Filter and sort macros
   const filteredMacros = useMemo(() => {
     let filtered = macros.filter((macro) => {
       const matchesSearch =
         searchQuery === "" ||
         macro.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         macro.content.toLowerCase().includes(searchQuery.toLowerCase());
-
       const matchesTags =
         selectedTags.length === 0 ||
         selectedTags.every((tag) => macro.tags.includes(tag));
-
       return matchesSearch && matchesTags;
     });
 
-    // Sort macros
     filtered = [...filtered].sort((a, b) => {
       if (sortOrder === "usage") {
         const aCount = a.usageCount || 0;
@@ -135,35 +95,25 @@ function App() {
     return filtered;
   }, [macros, searchQuery, selectedTags, sortOrder]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd+N: New macro
       if ((e.ctrlKey || e.metaKey) && e.key === "n") {
         e.preventDefault();
         if (!isDialogOpen) handleOpenDialog();
         return;
       }
-
-      // Ctrl/Cmd+F: Focus search
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
         searchInputRef.current?.focus();
         return;
       }
-
-      // Escape: Close modals
       if (e.key === "Escape") {
         if (isDialogOpen) handleCloseDialog();
         if (showImportModal) setShowImportModal(false);
         if (deleteConfirmId) setDeleteConfirmId(null);
         return;
       }
-
-      // Only handle navigation if no modal is open
       if (isDialogOpen || showImportModal || deleteConfirmId) return;
-
-      // Arrow keys: Navigate list
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((prev) => Math.min(prev + 1, filteredMacros.length - 1));
@@ -174,22 +124,17 @@ function App() {
         setSelectedIndex((prev) => Math.max(prev - 1, -1));
         return;
       }
-
-      // Enter: Insert selected macro
       if (e.key === "Enter" && selectedIndex >= 0 && selectedIndex < filteredMacros.length) {
         e.preventDefault();
-        handleQuickInsert(filteredMacros[selectedIndex]);
+        handleCopyMacro(filteredMacros[selectedIndex]);
         return;
       }
-
-      // Delete: Delete selected macro
       if (e.key === "Delete" && selectedIndex >= 0 && selectedIndex < filteredMacros.length) {
         e.preventDefault();
         setDeleteConfirmId(filteredMacros[selectedIndex].id);
         return;
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [filteredMacros, selectedIndex, isDialogOpen, showImportModal, deleteConfirmId]);
@@ -202,6 +147,17 @@ function App() {
   const loadTags = async () => {
     const tags = await getAllTags();
     setAllTags(tags);
+  };
+
+  const loadSettings = async () => {
+    const result = await chrome.storage.sync.get('autocompleteEnabled');
+    setAutocompleteEnabled(result.autocompleteEnabled !== false);
+  };
+
+  const saveSettings = async (enabled: boolean) => {
+    await chrome.storage.sync.set({ autocompleteEnabled: enabled });
+    setAutocompleteEnabled(enabled);
+    showToast(enabled ? "Smart suggestions enabled" : "Smart suggestions disabled", "positive");
   };
 
   const handleOpenDialog = (macro?: Macro) => {
@@ -233,7 +189,6 @@ function App() {
     if (!macroName.trim() || !macroContent.trim()) {
       return;
     }
-
     const macroToSave = editingMacro
       ? {
         ...editingMacro,
@@ -243,7 +198,6 @@ function App() {
         updatedAt: Date.now(),
       }
       : createMacro(macroName.trim(), macroContent.trim(), macroTags);
-
     await saveMacro(macroToSave);
     showToast(editingMacro ? "Macro updated successfully" : "Macro created successfully", "positive");
     handleCloseDialog();
@@ -266,62 +220,10 @@ function App() {
     showToast("Macro duplicated successfully", "positive");
   };
 
-  const handleQuickInsert = async (macro: Macro) => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab.id) {
-        showToast("No active tab found", "negative");
-        return;
-      }
-
-      const processedContent = await processMacroVariables(macro.content);
-
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: (text: string) => {
-          const activeElement = document.activeElement as HTMLElement;
-          if (!activeElement) return;
-
-          if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
-            const start = activeElement.selectionStart || 0;
-            const end = activeElement.selectionEnd || 0;
-            activeElement.value = activeElement.value.substring(0, start) + text + activeElement.value.substring(end);
-            activeElement.selectionStart = activeElement.selectionEnd = start + text.length;
-            activeElement.dispatchEvent(new Event("input", { bubbles: true }));
-            activeElement.dispatchEvent(new Event("change", { bubbles: true }));
-            activeElement.focus();
-          } else if (activeElement.isContentEditable) {
-            const selection = window.getSelection();
-            if (selection && selection.rangeCount > 0) {
-              const range = selection.getRangeAt(0);
-              range.deleteContents();
-              range.insertNode(document.createTextNode(text));
-              range.collapse(false);
-              selection.removeAllRanges();
-              selection.addRange(range);
-            } else {
-              activeElement.textContent = (activeElement.textContent || "") + text;
-            }
-            activeElement.dispatchEvent(new Event("input", { bubbles: true }));
-          }
-        },
-        args: [processedContent],
-      });
-
-      await incrementMacroUsage(macro.id);
-      showToast(`Macro "${macro.name}" inserted`, "positive");
-    } catch (error) {
-      console.error("Error inserting macro:", error);
-      showToast("Failed to insert macro", "negative");
-    }
-  };
-
   const handleCopyMacro = async (macro: Macro) => {
     try {
       const processedContent = await processMacroVariables(macro.content);
-
       await navigator.clipboard.writeText(processedContent);
-
       await incrementMacroUsage(macro.id);
       showToast(`Macro "${macro.name}" copied to clipboard`, "positive");
     } catch (error) {
@@ -393,411 +295,340 @@ function App() {
     }
   };
 
-  const EmptyState = () => (
-    <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM} align={Flex.align.CENTER} style={{ padding: "20px", textAlign: "center" }}>
-      <Text type={Text.types.TEXT1} style={{ fontSize: "16px", fontWeight: "bold" }}>
-        {macros.length === 0 ? "Welcome to Macro Manager!" : "No macros match your search"}
-      </Text>
-      <Text type={Text.types.TEXT2} color={Text.colors.SECONDARY}>
-        {macros.length === 0
-          ? "Create your first macro to get started. Macros can contain text, code, or use variables like {{date}} and {{time}}."
-          : "Try adjusting your search or filters"}
-      </Text>
-      {macros.length === 0 && (
-        <Button onClick={() => handleOpenDialog()} kind={Button.kinds.PRIMARY} size={Button.sizes.SMALL}>
-          Create Your First Macro
-        </Button>
-      )}
-      <Divider />
-      <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS} align={Flex.align.START} style={{ fontSize: "12px", textAlign: "left" }}>
-        <Text type={Text.types.TEXT2} style={{ fontWeight: "bold" }}>Keyboard Shortcuts:</Text>
-        <Text type={Text.types.TEXT2}>• Ctrl/Cmd+N: New macro</Text>
-        <Text type={Text.types.TEXT2}>• Ctrl/Cmd+F: Focus search</Text>
-        <Text type={Text.types.TEXT2}>• Arrow keys: Navigate</Text>
-        <Text type={Text.types.TEXT2}>• Enter: Insert macro</Text>
-        <Text type={Text.types.TEXT2}>• Delete: Remove macro</Text>
-      </Flex>
-    </Flex>
-  );
-
   return (
     <div className="app-container">
-      <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.SMALL} className="app-content">
-        {/* Header Section - Minimal */}
-        <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER} className="header-section">
-          <Search
+      {/* Header */}
+      <div className="header">
+        <div className="header-top">
+          <h1 className="header-title">Macros</h1>
+          <div className="header-actions">
+            <button
+              className="icon-btn"
+              onClick={handleExport}
+              title="Export macros"
+            >
+              <svg viewBox="0 0 16 16" fill="none">
+                <path d="M8 2L8 10M8 10L5 7M8 10L11 7M3 10L3 13L13 13L13 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              className="icon-btn"
+              onClick={() => setShowImportModal(true)}
+              title="Import macros"
+            >
+              <svg viewBox="0 0 16 16" fill="none">
+                <path d="M8 6L8 14M8 14L5 11M8 14L11 11M3 6L3 3L13 3L13 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              className="icon-btn"
+              onClick={() => setShowSettingsModal(true)}
+              title="Settings"
+            >
+              <svg viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+                <path d="M8 4V2M8 14V12M12 8H14M2 8H4M11.314 4.686L12.728 3.272M3.272 12.728L4.686 11.314M11.314 11.314L12.728 12.728M3.272 3.272L4.686 4.686" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="search-wrapper">
+          <svg className="search-icon" viewBox="0 0 16 16" fill="none">
+            <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <input
             ref={searchInputRef}
+            type="text"
+            className="search-input"
             placeholder="Search macros..."
             value={searchQuery}
-            onChange={(value: string) => setSearchQuery(value)}
-            size="medium"
-            className="search-input"
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <MenuButton
-            component={() => <IconButton icon="MoreVertical" ariaLabel="More options" size={IconButton.sizes.SMALL} kind={IconButton.kinds.TERTIARY} />}
-            ariaLabel="More options"
-            size={MenuButton.sizes.SMALL}
-          >
-            <Menu id="header-menu">
-              <MenuItem title="Export macros" onClick={handleExport} />
-              <MenuItem title="Import macros" onClick={() => setShowImportModal(true)} />
-              <MenuItem title="Settings" onClick={() => setShowSettingsModal(true)} />
-            </Menu>
-          </MenuButton>
-        </Flex>
+        </div>
+        {allTags.length > 0 && (
+          <div className="filters">
+            {allTags.map((tag: string) => (
+              <div
+                key={tag}
+                className={`filter-chip ${selectedTags.includes(tag) ? "active" : ""}`}
+                onClick={() => handleTagFilter(tag)}
+              >
+                {tag}
+                {selectedTags.includes(tag) && (
+                  <button
+                    className="filter-chip-remove"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTagFilter(tag);
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-        {/* Filters & Tags - Collapsible or Minimal */}
-        <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS}>
-          <Flex justify={Flex.justify.SPACE_BETWEEN} align={Flex.align.CENTER}>
-            <Flex gap={Flex.gaps.XS} align={Flex.align.CENTER} className="sort-section">
-              <Dropdown
-                size={Dropdown.sizes.SMALL}
-                placeholder="Sort"
-                value={{ label: sortOrder === "usage" ? "Most Used" : sortOrder === "recent" ? "Recent" : "A-Z", value: sortOrder }}
-                options={[
-                  { label: "Most Used", value: "usage" },
-                  { label: "Recently Used", value: "recent" },
-                  { label: "Alphabetical", value: "alphabetical" },
-                ]}
-                onChange={(option: any) => option && setSortOrder(option.value as SortOrder)}
-                className="sort-dropdown"
-              />
-            </Flex>
-            <Button
-              onClick={() => handleOpenDialog()}
-              kind={Button.kinds.PRIMARY}
-              size={Button.sizes.SMALL}
-              ariaLabel="New macro (Ctrl+N)"
-            >
-              + New
-            </Button>
-          </Flex>
+      {/* Controls */}
+      <div className="controls">
+        <select
+          className="sort-select"
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+        >
+          <option value="alphabetical">A-Z</option>
+          <option value="usage">Most Used</option>
+          <option value="recent">Recent</option>
+        </select>
+        <button className="new-btn" onClick={() => handleOpenDialog()}>
+          + New
+        </button>
+      </div>
 
-          {allTags.length > 0 && (
-            <Flex gap={Flex.gaps.XS} wrap className="tags-section">
-              {allTags.map((tag: string) => (
-                <div key={tag} style={{ cursor: "pointer" }}>
-                  <Chips
-                    label={tag}
-                    color={selectedTags.includes(tag) ? Chips.colors.POSITIVE : Chips.colors.NEUTRAL}
-                    onClick={() => handleTagFilter(tag)}
-                    className="tag-chip"
-                  />
-                </div>
-              ))}
-            </Flex>
-          )}
-        </Flex>
-
-        <div className="macro-list-container" ref={listRef}>
-          {filteredMacros.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <div className="macro-list">
-              {filteredMacros.map((macro: Macro, index: number) => (
-                <div
-                  key={macro.id}
-                  className={`macro-card ${selectedIndex === index ? "selected" : ""}`}
-                >
-                  <div className="macro-card-content" onClick={() => handleCopyMacro(macro)}>
-                    <div className="macro-header">
-                      <Text type={Text.types.TEXT1} className="macro-name">
-                        {macro.name}
-                      </Text>
-                      {macro.usageCount !== undefined && macro.usageCount > 0 && (
-                        <span className="macro-usage">{macro.usageCount} uses</span>
-                      )}
-                    </div>
-
-                    <Text type={Text.types.TEXT2} className="macro-content-preview">
-                      {macro.content}
-                    </Text>
-
-                    {macro.tags.length > 0 && (
-                      <Flex gap={Flex.gaps.XS} wrap className="macro-tags">
-                        {macro.tags.slice(0, 3).map((tag) => (
-                          <span key={tag} className="mini-tag">{tag}</span>
-                        ))}
-                        {macro.tags.length > 3 && <span className="mini-tag">+{macro.tags.length - 3}</span>}
-                      </Flex>
+      {/* Macro List */}
+      <div className="macro-list-container" ref={listRef}>
+        {filteredMacros.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">
+              <svg viewBox="0 0 64 64" fill="none">
+                <rect x="16" y="16" width="32" height="32" rx="4" stroke="currentColor" strokeWidth="2" />
+                <path d="M24 28L28 32L40 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="empty-state-title">
+              {macros.length === 0 ? "No macros yet" : "No matches"}
+            </div>
+            <div className="empty-state-text">
+              {macros.length === 0
+                ? "Create your first macro to get started"
+                : "Try adjusting your search or filters"}
+            </div>
+            {macros.length === 0 && (
+              <button className="new-btn" onClick={() => handleOpenDialog()}>
+                Create Macro
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="macro-list">
+            {filteredMacros.map((macro: Macro, index: number) => (
+              <div
+                key={macro.id}
+                className={`macro-card ${selectedIndex === index ? "selected" : ""}`}
+              >
+                <div onClick={() => handleCopyMacro(macro)}>
+                  <div className="macro-card-header">
+                    <h3 className="macro-name">{macro.name}</h3>
+                    {macro.usageCount !== undefined && macro.usageCount > 0 && (
+                      <span className="macro-usage">{macro.usageCount}</span>
                     )}
                   </div>
-
-                  <div className="macro-actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="action-button edit-button"
-                      onClick={() => handleOpenDialog(macro)}
-                      aria-label="Edit macro"
-                      title="Edit macro"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M11.333 2.00001C11.5084 1.82464 11.7163 1.68576 11.9448 1.59197C12.1733 1.49818 12.4176 1.45142 12.6643 1.45468C12.911 1.45794 13.1541 1.51115 13.3795 1.61119C13.6049 1.71123 13.8078 1.8558 13.9762 2.03715C14.1446 2.2185 14.2747 2.43258 14.3589 2.66618C14.4431 2.89978 14.4794 3.14808 14.4654 3.39574C14.4514 3.6434 14.3874 3.88524 14.2777 4.10667C14.168 4.3281 14.0151 4.5245 13.828 4.68401L13.333 5.17901L10.828 2.67401L11.333 2.00001ZM9.885 3.44701L2.333 11H4.333V13H6.333V11H8.333L9.885 3.44701Z" fill="currentColor" />
-                      </svg>
-                    </button>
-                    <button
-                      className="action-button delete-button"
-                      onClick={() => setDeleteConfirmId(macro.id)}
-                      aria-label="Delete macro"
-                      title="Delete macro"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M6.5 1.5C6.5 1.22386 6.72386 1 7 1H9C9.27614 1 9.5 1.22386 9.5 1.5V2.5H12.5C12.7761 2.5 13 2.72386 13 3C13 3.27614 12.7761 3.5 12.5 3.5H3.5C3.22386 3.5 3 3.27614 3 3C3 2.72386 3.22386 2.5 3.5 2.5H6.5V1.5ZM4.5 4.5H11.5L11.1464 12.8536C11.1133 13.4079 10.6579 13.85 10.1036 13.85H5.89645C5.34207 13.85 4.88672 13.4079 4.85355 12.8536L4.5 4.5Z" fill="currentColor" />
-                      </svg>
-                    </button>
+                  <div className="macro-content">{macro.content}</div>
+                  <div className="macro-footer">
+                    {macro.tags.length > 0 && (
+                      <div className="macro-tags">
+                        {macro.tags.slice(0, 2).map((tag) => (
+                          <span key={tag} className="macro-tag">{tag}</span>
+                        ))}
+                        {macro.tags.length > 2 && (
+                          <span className="macro-tag">+{macro.tags.length - 2}</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="macro-actions">
+                      <button
+                        className="macro-action-btn edit"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDialog(macro);
+                        }}
+                        title="Edit"
+                      >
+                        <svg viewBox="0 0 16 16" fill="none">
+                          <path d="M11.333 2.00001C11.5084 1.82464 11.7163 1.68576 11.9448 1.59197C12.1733 1.49818 12.4176 1.45142 12.6643 1.45468C12.911 1.45794 13.1541 1.51115 13.3795 1.61119C13.6049 1.71123 13.8078 1.8558 13.9762 2.03715C14.1446 2.2185 14.2747 2.43258 14.3589 2.66618C14.4431 2.89978 14.4794 3.14808 14.4654 3.39574C14.4514 3.6434 14.3874 3.88524 14.2777 4.10667C14.168 4.3281 14.0151 4.5245 13.828 4.68401L13.333 5.17901L10.828 2.67401L11.333 2.00001ZM9.885 3.44701L2.333 11H4.333V13H6.333V11H8.333L9.885 3.44701Z" fill="currentColor" />
+                        </svg>
+                      </button>
+                      <button
+                        className="macro-action-btn delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirmId(macro.id);
+                        }}
+                        title="Delete"
+                      >
+                        <svg viewBox="0 0 16 16" fill="none">
+                          <path d="M6.5 1.5C6.5 1.22386 6.72386 1 7 1H9C9.27614 1 9.5 1.22386 9.5 1.5V2.5H12.5C12.7761 2.5 13 2.72386 13 3C13 3.27614 12.7761 3.5 12.5 3.5H3.5C3.22386 3.5 3 3.27614 3 3C3 2.72386 3.22386 2.5 3.5 2.5H6.5V1.5ZM4.5 4.5H11.5L11.1464 12.8536C11.1133 13.4079 10.6579 13.85 10.1036 13.85H5.89645C5.34207 13.85 4.88672 13.4079 4.85355 12.8536L4.5 4.5Z" fill="currentColor" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Toast */}
+      {toast.open && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.message}
         </div>
-      </Flex>
+      )}
 
-      {/* Toast Notification */}
-      <Toast
-        open={toast.open}
-        onClose={() => setToast({ open: false, message: "", type: "normal" })}
-        type={toast.type}
-        autoHideDuration={3000}
-      >
-        {toast.message}
-      </Toast>
-
-      {/* Add/Edit Modal */}
-      <Modal
-        id="macro-edit-modal"
-        show={isDialogOpen}
-        onClose={handleCloseDialog}
-        width="default"
-      >
-        <ModalHeader title={editingMacro ? "Edit Macro" : "New Macro"} />
-        <ModalContent>
-          <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
-            <TextField
-              placeholder="Macro Name"
-              value={macroName}
-              onChange={(value: string) => setMacroName(value)}
-              size={TextField.sizes.MEDIUM}
-              autoFocus
-            />
-            <TextArea
-              placeholder="Content..."
-              value={macroContent}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMacroContent(e.target.value)}
-              rows={6}
-            />
-            <div className="variables-hint">
-              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", fontWeight: "600", marginBottom: "4px" }}>
-                Variables:
-              </Text>
-              <div className="variables-list">
-                {AVAILABLE_VARIABLES.map((v) => (
-                  <span key={v.variable} className="variable-chip" title={v.description}>
-                    {v.variable}
-                  </span>
-                ))}
+      {/* Modals - Using simple overlays */}
+      {isDialogOpen && (
+        <div className="modal-overlay" onClick={handleCloseDialog}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>{editingMacro ? "Edit Macro" : "New Macro"}</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <input
+                type="text"
+                placeholder="Macro Name"
+                value={macroName}
+                onChange={(e) => setMacroName(e.target.value)}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "15px" }}
+                autoFocus
+              />
+              <textarea
+                placeholder="Content..."
+                value={macroContent}
+                onChange={(e) => setMacroContent(e.target.value)}
+                rows={6}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "15px", fontFamily: "monospace", resize: "vertical" }}
+              />
+              <div>
+                <div style={{ fontSize: "12px", fontWeight: "600", marginBottom: "8px" }}>Variables:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {AVAILABLE_VARIABLES.map((v) => (
+                    <span key={v.variable} style={{ fontSize: "10px", padding: "4px 8px", background: "var(--background)", borderRadius: "4px", fontFamily: "monospace" }} title={v.description}>
+                      {v.variable}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "14px", marginBottom: "8px" }}>Tags</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                  {macroTags.map((tag) => (
+                    <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 8px", background: "var(--accent)", color: "white", borderRadius: "16px", fontSize: "12px" }}>
+                      {tag}
+                      <button onClick={() => handleRemoveTag(tag)} style={{ background: "none", border: "none", color: "white", cursor: "pointer", padding: 0 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    type="text"
+                    placeholder="Add tag"
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddTag();
+                      }
+                    }}
+                    style={{ flex: 1, padding: "8px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "14px" }}
+                  />
+                  <button onClick={handleAddTag} style={{ padding: "8px 16px", background: "var(--accent)", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+                    Add
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "16px" }}>
+                <button onClick={handleCloseDialog} style={{ padding: "8px 16px", background: "transparent", border: "1px solid var(--border)", borderRadius: "8px", cursor: "pointer" }}>
+                  Cancel
+                </button>
+                <button onClick={handleSaveMacro} disabled={!macroName.trim() || !macroContent.trim()} style={{ padding: "8px 16px", background: "var(--accent)", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", opacity: (!macroName.trim() || !macroContent.trim()) ? 0.5 : 1 }}>
+                  {editingMacro ? "Save" : "Create"}
+                </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.SMALL}>
-              <Text type={Text.types.TEXT2}>Tags</Text>
-              <Flex gap={Flex.gaps.XS} wrap>
-                {macroTags.map((tag) => (
-                  <Chips
-                    key={tag}
-                    label={tag}
-                    onDelete={() => handleRemoveTag(tag)}
-                  />
-                ))}
-              </Flex>
-              <Flex gap={Flex.gaps.XS}>
-                <TextField
-                  placeholder="Add tag"
-                  value={newTag}
-                  onChange={(value: string) => setNewTag(value)}
-                  onKeyDown={(e: React.KeyboardEvent) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddTag();
-                    }
-                  }}
-                  size={TextField.sizes.SMALL}
-                />
-                <Button
-                  onClick={handleAddTag}
-                  kind={Button.kinds.SECONDARY}
-                  size={Button.sizes.SMALL}
-                >
-                  Add
-                </Button>
-              </Flex>
-            </Flex>
-            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL} style={{ marginTop: "16px" }}>
-              <Button onClick={handleCloseDialog} kind={Button.kinds.TERTIARY}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveMacro}
-                kind={Button.kinds.PRIMARY}
-                disabled={!macroName.trim() || !macroContent.trim()}
-              >
-                {editingMacro ? "Save Changes" : "Create Macro"}
-              </Button>
-            </Flex>
-          </Flex>
-        </ModalContent>
-      </Modal>
-
-      {/* Import Modal */}
-      <Modal
-        id="import-modal"
-        show={showImportModal}
-        onClose={() => {
-          setShowImportModal(false);
-          setImportText("");
-        }}
-        width="default"
-      >
-        <ModalHeader title="Import Macros" />
-        <ModalContent>
-          <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
-            <Text type={Text.types.TEXT2}>
-              Paste JSON or select a file to import macros.
-            </Text>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImportFile}
-              style={{ fontSize: "12px" }}
-            />
-            <TextArea
-              placeholder="Paste JSON here..."
-              value={importText}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setImportText(e.target.value)}
-              rows={6}
-            />
-            <Flex align={Flex.align.CENTER} gap={Flex.gaps.SMALL}>
-              <input
-                type="checkbox"
-                checked={importMerge}
-                onChange={(e) => setImportMerge(e.target.checked)}
-                id="import-merge"
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => { setShowImportModal(false); setImportText(""); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Import Macros</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <input type="file" accept=".json" onChange={handleImportFile} style={{ fontSize: "14px" }} />
+              <textarea
+                placeholder="Paste JSON here..."
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                rows={8}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "14px", fontFamily: "monospace" }}
               />
-              <label htmlFor="import-merge" style={{ fontSize: "12px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}>
+                <input type="checkbox" checked={importMerge} onChange={(e) => setImportMerge(e.target.checked)} />
                 Merge with existing macros
               </label>
-            </Flex>
-            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL}>
-              <Button
-                onClick={() => {
-                  setShowImportModal(false);
-                  setImportText("");
-                }}
-                kind={Button.kinds.TERTIARY}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleImport}
-                kind={Button.kinds.PRIMARY}
-                disabled={!importText.trim()}
-              >
-                Import
-              </Button>
-            </Flex>
-          </Flex>
-        </ModalContent>
-      </Modal>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                <button onClick={() => { setShowImportModal(false); setImportText(""); }} style={{ padding: "8px 16px", background: "transparent", border: "1px solid var(--border)", borderRadius: "8px", cursor: "pointer" }}>
+                  Cancel
+                </button>
+                <button onClick={handleImport} disabled={!importText.trim()} style={{ padding: "8px 16px", background: "var(--accent)", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", opacity: !importText.trim() ? 0.5 : 1 }}>
+                  Import
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        id="delete-confirm-modal"
-        show={deleteConfirmId !== null}
-        onClose={() => setDeleteConfirmId(null)}
-        width="default"
-      >
-        <ModalHeader title="Delete Macro" />
-        <ModalContent>
-          <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
-            <Text type={Text.types.TEXT1}>
-              Are you sure you want to delete this macro?
-            </Text>
-            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL}>
-              <Button
-                onClick={() => setDeleteConfirmId(null)}
-                kind={Button.kinds.TERTIARY}
-              >
+      {deleteConfirmId && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmId(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Delete Macro</h2>
+            <p>Are you sure you want to delete this macro?</p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "16px" }}>
+              <button onClick={() => setDeleteConfirmId(null)} style={{ padding: "8px 16px", background: "transparent", border: "1px solid var(--border)", borderRadius: "8px", cursor: "pointer" }}>
                 Cancel
-              </Button>
-              <Button
-                onClick={() => deleteConfirmId && handleDeleteMacro(deleteConfirmId)}
-                kind={Button.kinds.PRIMARY}
-                color={Button.colors.NEGATIVE}
-              >
+              </button>
+              <button onClick={() => deleteConfirmId && handleDeleteMacro(deleteConfirmId)} style={{ padding: "8px 16px", background: "var(--danger)", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
                 Delete
-              </Button>
-            </Flex>
-          </Flex>
-        </ModalContent>
-      </Modal>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Settings Modal */}
-      <Modal
-        id="settings-modal"
-        show={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        width="default"
-      >
-        <ModalHeader title="Settings" />
-        <ModalContent>
-          <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.MEDIUM}>
-            <Text type={Text.types.TEXT1} style={{ fontWeight: "600" }}>
-              Smart Features
-            </Text>
-            <Flex align={Flex.align.CENTER} gap={Flex.gaps.SMALL} justify={Flex.justify.SPACE_BETWEEN}>
-              <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS} style={{ flex: 1 }}>
-                <Text type={Text.types.TEXT1} style={{ fontWeight: "500" }}>
-                  Auto-suggest & Tab Completion
-                </Text>
-                <Text type={Text.types.TEXT2} color={Text.colors.SECONDARY}>
-                  Show macro suggestions as you type and enable Tab completion
-                </Text>
-              </Flex>
-              <input
-                type="checkbox"
-                checked={autocompleteEnabled}
-                onChange={(e) => saveSettings(e.target.checked)}
-                style={{ width: "20px", height: "20px", cursor: "pointer" }}
-              />
-            </Flex>
-            <Divider />
-            <Flex direction={Flex.directions.COLUMN} gap={Flex.gaps.XS}>
-              <Text type={Text.types.TEXT2} style={{ fontSize: "12px", color: Text.colors.SECONDARY }}>
-                <strong>Features:</strong>
-              </Text>
-              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
-                • Type macro name and press Tab to expand
-              </Text>
-              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
-                • See suggestions in a floating overlay
-              </Text>
-              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
-                • Context-aware suggestions based on field type
-              </Text>
-              <Text type={Text.types.TEXT2} style={{ fontSize: "11px", color: Text.colors.SECONDARY }}>
-                • Keyboard navigation (Arrow keys, Enter, Esc)
-              </Text>
-            </Flex>
-            <Flex justify={Flex.justify.END} gap={Flex.gaps.SMALL} style={{ marginTop: "16px" }}>
-              <Button
-                onClick={() => setShowSettingsModal(false)}
-                kind={Button.kinds.TERTIARY}
-              >
-                Close
-              </Button>
-            </Flex>
-          </Flex>
-        </ModalContent>
-      </Modal>
+      {showSettingsModal && (
+        <div className="modal-overlay" onClick={() => setShowSettingsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Settings</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: "500", marginBottom: "4px" }}>Auto-suggest & Tab Completion</div>
+                  <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Show macro suggestions as you type</div>
+                </div>
+                <input type="checkbox" checked={autocompleteEnabled} onChange={(e) => saveSettings(e.target.checked)} style={{ width: "20px", height: "20px", cursor: "pointer" }} />
+              </div>
+              <div style={{ marginTop: "8px", paddingTop: "16px", borderTop: "1px solid var(--border)" }}>
+                <div style={{ fontSize: "12px", fontWeight: "600", marginBottom: "8px" }}>Features:</div>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
+                  • Type macro name and press Tab to expand<br />
+                  • See suggestions in a floating overlay<br />
+                  • Context-aware suggestions based on field type<br />
+                  • Keyboard navigation (Arrow keys, Enter, Esc)
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                <button onClick={() => setShowSettingsModal(false)} style={{ padding: "8px 16px", background: "transparent", border: "1px solid var(--border)", borderRadius: "8px", cursor: "pointer" }}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
