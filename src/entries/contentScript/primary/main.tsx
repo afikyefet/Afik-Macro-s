@@ -6,7 +6,11 @@ import App from "./App";
 import { initializeAutocomplete } from "../../../content/macroAutocomplete";
 
 // Initialize macro autocomplete system
-initializeAutocomplete();
+try {
+  initializeAutocomplete();
+} catch (error) {
+  console.error('Failed to initialize autocomplete:', error);
+}
 
 renderContent(import.meta.PLUGIN_WEB_EXT_CHUNK_CSS_PATHS, (appRoot) => {
   ReactDOM.createRoot(appRoot).render(

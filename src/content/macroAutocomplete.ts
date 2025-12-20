@@ -34,6 +34,10 @@ class MacroAutocomplete {
   private readonly CACHE_DURATION = 5000; // 5 seconds
   private overlayContainer: HTMLElement | null = null;
   private isEnabled = true;
+  private isInserting = false; // Flag to prevent overlay closing during insertion
+  private lastInputTime = 0; // Track timing of input events
+  private lastInputWasHuman = false; // Track if last input was human typing
+  private focusTimeout: number | null = null; // Timeout to delay overlay on focus
 
   constructor() {
     this.loadMacros();
@@ -110,7 +114,13 @@ class MacroAutocomplete {
     document.addEventListener('focusin', (e) => {
       const target = e.target as HTMLElement;
       if (this.isEditableElement(target)) {
-        this.handleFocus(target);
+        // Delay overlay to avoid flicker on focus
+        if (this.focusTimeout) {
+          clearTimeout(this.focusTimeout);
+        }
+        this.focusTimeout = window.setTimeout(() => {
+          this.handleFocus(target);
+        }, 300); // 300ms delay to allow browser autocomplete to complete
       }
     });
 
@@ -118,7 +128,49 @@ class MacroAutocomplete {
     document.addEventListener('input', (e) => {
       const target = e.target as HTMLElement;
       if (this.isEditableElement(target) && target === this.state.currentElement) {
+        // Detect if input is from human typing vs programmatic (autocomplete, paste, etc.)
+        const now = Date.now();
+        const timeSinceLastInput = now - this.lastInputTime;
+        const isHumanTyping = timeSinceLastInput > 50 && timeSinceLastInput < 2000; // Human typing is typically 50-2000ms between keystrokes
+        
+        // Check if this looks like browser autocomplete (rapid value change without recent typing)
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          const valueLength = target.value.length;
+          const wasEmpty = (this.state.currentElement as HTMLInputElement | HTMLTextAreaElement)?.value.length === 0;
+          
+          // Browser autocomplete typically fills the field quickly when it's empty
+          if (wasEmpty && valueLength > 0 && !this.lastInputWasHuman && timeSinceLastInput > 100) {
+            // Likely browser autocomplete - don't show overlay
+            this.lastInputTime = now;
+            this.lastInputWasHuman = false;
+            return;
+          }
+        }
+        
+        this.lastInputTime = now;
+        this.lastInputWasHuman = isHumanTyping;
         this.handleInput(target);
+      }
+    }, true);
+    
+    // Monitor keyboard events to detect human typing
+    document.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement;
+      if (this.isEditableElement(target) && target === this.state.currentElement) {
+        // Mark as human input if it's a printable character
+        if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') {
+          this.lastInputWasHuman = true;
+          this.lastInputTime = Date.now();
+        }
+      }
+    }, true);
+    
+    // Monitor paste events
+    document.addEventListener('paste', (e) => {
+      const target = e.target as HTMLElement;
+      if (this.isEditableElement(target) && target === this.state.currentElement) {
+        this.lastInputWasHuman = false; // Paste is not human typing
+        this.lastInputTime = Date.now();
       }
     }, true);
 
@@ -131,7 +183,10 @@ class MacroAutocomplete {
 
     // Close overlay on click outside
     document.addEventListener('click', (e) => {
-      if (this.state.active && !this.overlayContainer?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const clickedInsideOverlay = this.overlayContainer?.contains(target);
+      // Don't close if clicking inside overlay or if insertion is in progress
+      if (this.state.active && !clickedInsideOverlay && !this.isInserting) {
         this.hideOverlay();
       }
     }, true);
@@ -140,12 +195,20 @@ class MacroAutocomplete {
     document.addEventListener('focusout', (e) => {
       const target = e.target as HTMLElement;
       if (target === this.state.currentElement) {
-        // Delay to allow click events on overlay
+        // Clear focus timeout if element loses focus
+        if (this.focusTimeout) {
+          clearTimeout(this.focusTimeout);
+          this.focusTimeout = null;
+        }
+        // Delay to allow click events on overlay and prevent closing during insertion
         setTimeout(() => {
-          if (document.activeElement !== this.state.currentElement) {
+          // Don't close if clicking on overlay or if insertion is in progress
+          const relatedTarget = (e as FocusEvent).relatedTarget as HTMLElement;
+          const clickedOverlay = relatedTarget && this.overlayContainer?.contains(relatedTarget);
+          if (document.activeElement !== this.state.currentElement && !clickedOverlay && !this.isInserting) {
             this.hideOverlay();
           }
-        }, 200);
+        }, 300);
       }
     });
   }
@@ -168,11 +231,35 @@ class MacroAutocomplete {
    */
   private handleFocus(element: HTMLElement): void {
     if (!this.isEnabled) return;
-
+    
     this.state.currentElement = element;
     this.state.context = analyzeFieldContext(element);
     this.state.query = '';
-    this.updateSuggestions();
+    
+    // Check if field already has value (might be from autocomplete)
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      if (element.value.length > 0) {
+        // Field has value - wait a bit to see if it's from autocomplete
+        setTimeout(() => {
+          // If value changed after focus, it's likely autocomplete
+          if (element.value.length > 0 && !this.lastInputWasHuman) {
+            return; // Don't show overlay for autocompleted fields
+          }
+          // Only show overlay if field is empty or user is typing
+          if (element.value.length === 0 || this.lastInputWasHuman) {
+            this.updateSuggestions();
+          }
+        }, 500); // Wait 500ms to detect autocomplete
+        return;
+      }
+    }
+    
+    // Empty field - show suggestions after a short delay to avoid flicker
+    setTimeout(() => {
+      if (element === this.state.currentElement && (!element || (element instanceof HTMLInputElement && element.value.length === 0))) {
+        this.updateSuggestions();
+      }
+    }, 200);
   }
 
   /**
@@ -336,12 +423,18 @@ class MacroAutocomplete {
   /**
    * Insert macro into current element
    */
-  private async insertMacro(macro: Macro, isTabCompletion = false): Promise<void> {
-    if (!this.state.currentElement) return;
+  private async insertMacro(macro: Macro, isTabCompletion = false, elementOverride?: HTMLElement): Promise<void> {
+    // Use provided element or fall back to currentElement
+    const element = elementOverride || this.state.currentElement;
+    if (!element) {
+      return;
+    }
+
+    // Set flag to prevent overlay from closing during insertion
+    this.isInserting = true;
 
     try {
       const processedContent = await processMacroVariables(macro.content);
-      const element = this.state.currentElement;
 
       if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
         const start = element.selectionStart || 0;
@@ -355,6 +448,34 @@ class MacroAutocomplete {
           const afterSelection = value.substring(end);
           element.value = beforeQuery + processedContent + afterSelection;
           element.selectionStart = element.selectionEnd = queryStart + processedContent.length;
+        } else if (this.state.query && start > 0) {
+          // When clicking overlay, replace the query text if it exists
+          // The query is the last word/phrase before cursor (extracted by getCurrentText)
+          // Find where the query text starts by looking for it at the end of text before cursor
+          const textBeforeCursor = value.substring(0, start);
+          const queryLength = this.state.query.length;
+          
+          // Check if the query text appears at the end of text before cursor
+          if (textBeforeCursor.length >= queryLength) {
+            const potentialQuery = textBeforeCursor.substring(textBeforeCursor.length - queryLength);
+            // Match if exact match or if query is contained in the last part
+            if (potentialQuery.toLowerCase() === this.state.query.toLowerCase() ||
+                textBeforeCursor.toLowerCase().endsWith(this.state.query.toLowerCase())) {
+              const queryStart = start - queryLength;
+              const beforeQuery = value.substring(0, queryStart);
+              const afterSelection = value.substring(end);
+              element.value = beforeQuery + processedContent + afterSelection;
+              element.selectionStart = element.selectionEnd = queryStart + processedContent.length;
+            } else {
+              // Insert at cursor
+              element.value = value.substring(0, start) + processedContent + value.substring(end);
+              element.selectionStart = element.selectionEnd = start + processedContent.length;
+            }
+          } else {
+            // Insert at cursor
+            element.value = value.substring(0, start) + processedContent + value.substring(end);
+            element.selectionStart = element.selectionEnd = start + processedContent.length;
+          }
         } else {
           // Insert at cursor
           element.value = value.substring(0, start) + processedContent + value.substring(end);
@@ -391,6 +512,13 @@ class MacroAutocomplete {
       this.hideOverlay();
     } catch (error) {
       console.error('Error inserting macro:', error);
+    } finally {
+      // Clear insertion flag
+      this.isInserting = false;
+      // Restore focus to the input element
+      if (element && (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+        element.focus();
+      }
     }
   }
 
@@ -489,6 +617,10 @@ class MacroAutocomplete {
       display: flex;
       flex-direction: column;
     `;
+    // Stop clicks inside overlay from bubbling to document
+    this.overlayContainer.addEventListener('click', (e) => {
+      e.stopPropagation();
+    }, true);
 
     // Header
     const header = document.createElement('div');
@@ -528,7 +660,19 @@ class MacroAutocomplete {
         this.state.selectedIndex = index;
         this.updateOverlay();
       };
-      item.onclick = () => this.insertMacro(macro);
+      // Use mousedown instead of click to fire before focusout
+      item.onmousedown = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        // Store reference to element before async operation
+        const elementToUse = this.state.currentElement;
+        if (elementToUse) {
+          // Use setTimeout to ensure mousedown completes before insertion
+          setTimeout(() => {
+            this.insertMacro(macro, false, elementToUse);
+          }, 0);
+        }
+      };
 
       const name = document.createElement('div');
       name.style.cssText = 'font-weight: 600; color: #333; margin-bottom: 4px; font-size: 14px;';
