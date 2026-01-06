@@ -114,6 +114,38 @@
   font-weight: 500;
 }
 
+/* Minimized state */
+.macro-suggestion-overlay.minimized {
+  min-width: auto;
+  max-width: none;
+  max-height: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.minimized-icon {
+  width: 32px;
+  height: 32px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+.minimized-icon:hover {
+  background: #f8f9fa;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform: scale(1.1);
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   .macro-suggestion-overlay {
@@ -165,6 +197,21 @@
   .suggestion-tag {
     background: #404040;
     color: #b0b0b0;
+  }
+
+  .macro-suggestion-overlay.minimized {
+    background: transparent;
+    border: none;
+  }
+
+  .minimized-icon {
+    background: #2d2d2d;
+    border-color: #404040;
+    color: #e0e0e0;
+  }
+
+  .minimized-icon:hover {
+    background: #404040;
   }
 }
 

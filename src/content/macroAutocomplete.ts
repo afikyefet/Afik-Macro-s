@@ -38,13 +38,207 @@ class MacroAutocomplete {
   private lastInputTime = 0; // Track timing of input events
   private lastInputWasHuman = false; // Track if last input was human typing
   private focusTimeout: number | null = null; // Timeout to delay overlay on focus
+  private isMinimized = false; // Whether overlay is minimized to icon
+  private dismissedForCurrentInput = false; // Whether user dismissed overlay for current input field
 
   constructor() {
+    this.injectStyles();
     this.loadMacros();
     this.setupEventListeners();
     this.setupStorageListener();
     this.setupMessageListener();
     this.loadSettings();
+  }
+
+  /**
+   * Inject CSS styles into the page
+   */
+  private injectStyles(): void {
+    // Check if styles already injected
+    if (document.getElementById('macro-autocomplete-styles')) {
+      return;
+    }
+
+    // Inject CSS as style tag (since overlay is in document body, not shadow DOM)
+    const style = document.createElement('style');
+    style.id = 'macro-autocomplete-styles';
+    style.textContent = `
+      .macro-suggestion-overlay {
+        position: fixed;
+        z-index: 999999;
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        min-width: 300px;
+        max-width: 400px;
+        max-height: 400px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        font-size: 14px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .suggestion-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid #e0e0e0;
+        background: #f8f9fa;
+      }
+      .suggestion-title {
+        font-weight: 600;
+        color: #333;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .close-button {
+        background: none;
+        border: none;
+        font-size: 20px;
+        line-height: 1;
+        cursor: pointer;
+        color: #666;
+        padding: 0;
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+      }
+      .close-button:hover {
+        background: #e0e0e0;
+        color: #333;
+      }
+      .suggestion-list {
+        overflow-y: auto;
+        max-height: 350px;
+      }
+      .suggestion-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background-color 0.15s;
+      }
+      .suggestion-item:hover,
+      .suggestion-item.selected {
+        background: #f0f7ff;
+      }
+      .suggestion-item:last-child {
+        border-bottom: none;
+      }
+      .suggestion-name {
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 4px;
+        font-size: 14px;
+      }
+      .suggestion-preview {
+        color: #666;
+        font-size: 12px;
+        margin-bottom: 4px;
+        line-height: 1.4;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .suggestion-tags {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+      }
+      .suggestion-tag {
+        background: #e9ecef;
+        color: #495057;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 500;
+      }
+      .macro-suggestion-overlay.minimized {
+        min-width: auto;
+        max-width: none;
+        max-height: none;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+      }
+      .minimized-icon {
+        width: 32px;
+        height: 32px;
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 18px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        transition: all 0.2s ease;
+      }
+      .minimized-icon:hover {
+        background: #f8f9fa;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        transform: scale(1.1);
+      }
+      @media (prefers-color-scheme: dark) {
+        .macro-suggestion-overlay {
+          background: #2d2d2d;
+          border-color: #404040;
+          color: #e0e0e0;
+        }
+        .suggestion-header {
+          background: #1f1f1f;
+          border-bottom-color: #404040;
+        }
+        .suggestion-title {
+          color: #e0e0e0;
+        }
+        .close-button {
+          color: #999;
+        }
+        .close-button:hover {
+          background: #404040;
+          color: #e0e0e0;
+        }
+        .suggestion-item {
+          border-bottom-color: #404040;
+        }
+        .suggestion-item:hover,
+        .suggestion-item.selected {
+          background: #1a3a5c;
+        }
+        .suggestion-name {
+          color: #e0e0e0;
+        }
+        .suggestion-preview {
+          color: #b0b0b0;
+        }
+        .suggestion-tag {
+          background: #404040;
+          color: #b0b0b0;
+        }
+        .macro-suggestion-overlay.minimized {
+          background: transparent;
+          border: none;
+        }
+        .minimized-icon {
+          background: #2d2d2d;
+          border-color: #404040;
+          color: #e0e0e0;
+        }
+        .minimized-icon:hover {
+          background: #404040;
+        }
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   /**
@@ -235,6 +429,9 @@ class MacroAutocomplete {
     this.state.currentElement = element;
     this.state.context = analyzeFieldContext(element);
     this.state.query = '';
+    // Reset dismissal and minimized state when focusing a new field
+    this.dismissedForCurrentInput = false;
+    this.isMinimized = false;
     
     // Check if field already has value (might be from autocomplete)
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
@@ -327,10 +524,17 @@ class MacroAutocomplete {
    * Update suggestions based on current query and context
    */
   private async updateSuggestions(): Promise<void> {
+    // Don't show overlay if dismissed for current input
+    if (this.dismissedForCurrentInput) {
+      return;
+    }
+
     const macros = await this.getMacros();
     const query = this.state.query.toLowerCase().trim();
 
     let filtered: Array<{ macro: Macro; score: number }> = [];
+    const CONTEXT_THRESHOLD = 30; // Minimum score for empty query (requires strong context match)
+    const MATCH_THRESHOLD = 20; // Minimum score for typed query
 
     for (const macro of macros) {
       let score = 0;
@@ -341,24 +545,32 @@ class MacroAutocomplete {
         const contentMatch = fuzzyMatch(query, macro.content);
         score += Math.max(nameMatch, contentMatch * 0.5);
       } else {
-        // If no query, use context matching
+        // If no query, require strong context match (not just usage count)
         if (this.state.context) {
           score = matchMacroToContext(macro, this.state.context);
+          // Only boost with usage if we have a context match
+          if (score > 0) {
+            score += (macro.usageCount || 0) * 0.1;
+          }
         } else {
-          // Default: show most used macros
-          score = (macro.usageCount || 0) * 0.1;
+          // No context - don't show suggestions for empty query
+          score = 0;
         }
       }
 
-      // Context boost
-      if (this.state.context) {
+      // Context boost (only if we have a query)
+      if (query && this.state.context) {
         score += matchMacroToContext(macro, this.state.context) * 0.3;
       }
 
-      // Usage boost
-      score += (macro.usageCount || 0) * 0.05;
+      // Usage boost (only if we have a query)
+      if (query) {
+        score += (macro.usageCount || 0) * 0.05;
+      }
 
-      if (score > 0 || !query) {
+      // Apply threshold based on query
+      const threshold = query ? MATCH_THRESHOLD : CONTEXT_THRESHOLD;
+      if (score > threshold) {
         filtered.push({ macro, score });
       }
     }
@@ -567,6 +779,25 @@ class MacroAutocomplete {
   }
 
   /**
+   * Dismiss overlay for current input (user clicked close)
+   */
+  private dismissOverlay(): void {
+    this.dismissedForCurrentInput = true;
+    this.hideOverlay();
+  }
+
+  /**
+   * Toggle minimized state
+   */
+  private toggleMinimize(): void {
+    this.isMinimized = !this.isMinimized;
+    if (this.state.active && this.state.currentElement) {
+      const position = this.calculatePosition(this.state.currentElement);
+      this.renderOverlay(position);
+    }
+  }
+
+  /**
    * Update overlay position and content
    */
   private updateOverlay(): void {
@@ -596,6 +827,12 @@ class MacroAutocomplete {
       this.overlayContainer.remove();
     }
 
+    // If minimized, render minimized icon
+    if (this.isMinimized) {
+      this.renderMinimizedOverlay(position);
+      return;
+    }
+
     // Create container
     this.overlayContainer = document.createElement('div');
     this.overlayContainer.className = 'macro-suggestion-overlay';
@@ -604,18 +841,6 @@ class MacroAutocomplete {
       z-index: 999999;
       top: ${position.top}px;
       left: ${position.left}px;
-      background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      min-width: 300px;
-      max-width: 400px;
-      max-height: 400px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      font-size: 14px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
     `;
     // Stop clicks inside overlay from bubbling to document
     this.overlayContainer.addEventListener('click', (e) => {
@@ -624,38 +849,46 @@ class MacroAutocomplete {
 
     // Header
     const header = document.createElement('div');
-    header.style.cssText = `
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
-      border-bottom: 1px solid #e0e0e0;
-      background: #f8f9fa;
-    `;
+    header.className = 'suggestion-header';
     const title = document.createElement('span');
+    title.className = 'suggestion-title';
     title.textContent = 'Macro Suggestions';
-    title.style.cssText = 'font-weight: 600; color: #333; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;';
+    
+    const controls = document.createElement('div');
+    controls.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+    
+    // Minimize button
+    const minimizeBtn = document.createElement('button');
+    minimizeBtn.className = 'close-button';
+    minimizeBtn.textContent = '−';
+    minimizeBtn.title = 'Minimize';
+    minimizeBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.toggleMinimize();
+    };
+    
+    // Close button
     const closeBtn = document.createElement('button');
+    closeBtn.className = 'close-button';
     closeBtn.textContent = '×';
-    closeBtn.style.cssText = 'background: none; border: none; font-size: 20px; cursor: pointer; color: #666; padding: 0; width: 20px; height: 20px;';
-    closeBtn.onclick = () => this.hideOverlay();
+    closeBtn.title = 'Close';
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.dismissOverlay();
+    };
+    
+    controls.appendChild(minimizeBtn);
+    controls.appendChild(closeBtn);
     header.appendChild(title);
-    header.appendChild(closeBtn);
+    header.appendChild(controls);
 
     // List
     const list = document.createElement('div');
-    list.style.cssText = 'overflow-y: auto; max-height: 350px;';
+    list.className = 'suggestion-list';
 
     this.state.suggestions.forEach((macro, index) => {
       const item = document.createElement('div');
       item.className = `suggestion-item ${index === this.state.selectedIndex ? 'selected' : ''}`;
-      item.style.cssText = `
-        padding: 10px 12px;
-        cursor: pointer;
-        border-bottom: 1px solid #f0f0f0;
-        transition: background-color 0.15s;
-        ${index === this.state.selectedIndex ? 'background: #f0f7ff;' : ''}
-      `;
       item.onmouseenter = () => {
         this.state.selectedIndex = index;
         this.updateOverlay();
@@ -675,11 +908,11 @@ class MacroAutocomplete {
       };
 
       const name = document.createElement('div');
-      name.style.cssText = 'font-weight: 600; color: #333; margin-bottom: 4px; font-size: 14px;';
+      name.className = 'suggestion-name';
       name.textContent = macro.name;
 
       const preview = document.createElement('div');
-      preview.style.cssText = 'color: #666; font-size: 12px; margin-bottom: 4px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+      preview.className = 'suggestion-preview';
       preview.textContent = macro.content.length > 50 ? `${macro.content.substring(0, 50)}...` : macro.content;
 
       item.appendChild(name);
@@ -687,11 +920,11 @@ class MacroAutocomplete {
 
       if (macro.tags.length > 0) {
         const tags = document.createElement('div');
-        tags.style.cssText = 'display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;';
+        tags.className = 'suggestion-tags';
         macro.tags.slice(0, 2).forEach((tag) => {
           const tagEl = document.createElement('span');
+          tagEl.className = 'suggestion-tag';
           tagEl.textContent = tag;
-          tagEl.style.cssText = 'background: #e9ecef; color: #495057; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;';
           tags.appendChild(tagEl);
         });
         item.appendChild(tags);
@@ -709,6 +942,32 @@ class MacroAutocomplete {
     if (selectedItem) {
       selectedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
+  }
+
+  /**
+   * Render minimized overlay (icon only)
+   */
+  private renderMinimizedOverlay(position: { top: number; left: number }): void {
+    this.overlayContainer = document.createElement('div');
+    this.overlayContainer.className = 'macro-suggestion-overlay minimized';
+    this.overlayContainer.style.cssText = `
+      position: fixed;
+      z-index: 999999;
+      top: ${position.top}px;
+      left: ${position.left}px;
+    `;
+    
+    const icon = document.createElement('div');
+    icon.className = 'minimized-icon';
+    icon.innerHTML = '✨';
+    icon.title = 'Click to expand macro suggestions';
+    icon.onclick = (e) => {
+      e.stopPropagation();
+      this.toggleMinimize();
+    };
+    
+    this.overlayContainer.appendChild(icon);
+    document.body.appendChild(this.overlayContainer);
   }
 
   /**
