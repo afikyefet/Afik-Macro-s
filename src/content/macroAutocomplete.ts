@@ -33,6 +33,8 @@ class MacroAutocomplete {
   private cacheTimestamp = 0;
   private readonly CACHE_DURATION = 5000; // 5 seconds
   private overlayContainer: HTMLElement | null = null;
+  private inlineSuggestionContainer: HTMLElement | null = null;
+  private inlineSuggestionContent: HTMLElement | null = null;
   private isEnabled = true;
   private isInserting = false; // Flag to prevent overlay closing during insertion
   private lastInputTime = 0; // Track timing of input events
@@ -40,6 +42,8 @@ class MacroAutocomplete {
   private focusTimeout: number | null = null; // Timeout to delay overlay on focus
   private isMinimized = false; // Whether overlay is minimized to icon
   private dismissedForCurrentInput = false; // Whether user dismissed overlay for current input field
+  private userExpandedForCurrentInput = false; // Track user expansion per input
+  private focusToken = 0; // Guard against stale focus timeouts
 
   constructor() {
     this.injectStyles();
@@ -187,6 +191,24 @@ class MacroAutocomplete {
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         transform: scale(1.1);
       }
+      .macro-inline-suggestion {
+        position: fixed;
+        z-index: 999998;
+        pointer-events: none;
+        color: transparent;
+        background: transparent;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+      .macro-inline-suggestion-content {
+        white-space: pre;
+      }
+      .macro-inline-suggestion .ghost-base {
+        color: transparent;
+      }
+      .macro-inline-suggestion .ghost-suffix {
+        color: rgba(60, 60, 60, 0.4);
+      }
       @media (prefers-color-scheme: dark) {
         .macro-suggestion-overlay {
           background: #2d2d2d;
@@ -235,6 +257,9 @@ class MacroAutocomplete {
         }
         .minimized-icon:hover {
           background: #404040;
+        }
+        .macro-inline-suggestion .ghost-suffix {
+          color: rgba(224, 224, 224, 0.4);
         }
       }
     `;
@@ -308,11 +333,25 @@ class MacroAutocomplete {
     document.addEventListener('focusin', (e) => {
       const target = e.target as HTMLElement;
       if (this.isEditableElement(target)) {
+        // Reset state immediately for the newly focused element
+        this.state.currentElement = target;
+        this.state.context = analyzeFieldContext(target);
+        this.state.query = '';
+        this.dismissedForCurrentInput = false;
+        this.isMinimized = false;
+        this.userExpandedForCurrentInput = false;
+        this.clearInlineSuggestion();
+
+        this.focusToken += 1;
+        const token = this.focusToken;
+
         // Delay overlay to avoid flicker on focus
         if (this.focusTimeout) {
           clearTimeout(this.focusTimeout);
         }
         this.focusTimeout = window.setTimeout(() => {
+          if (this.focusToken !== token) return;
+          if (document.activeElement !== target) return;
           this.handleFocus(target);
         }, 300); // 300ms delay to allow browser autocomplete to complete
       }
@@ -405,6 +444,15 @@ class MacroAutocomplete {
         }, 300);
       }
     });
+
+    window.addEventListener('resize', () => {
+      this.updateInlineSuggestion();
+    });
+
+    window.addEventListener('scroll', () => {
+      this.updateInlineSuggestion();
+      this.updateOverlay();
+    }, true);
   }
 
   /**
@@ -425,19 +473,16 @@ class MacroAutocomplete {
    */
   private handleFocus(element: HTMLElement): void {
     if (!this.isEnabled) return;
-    
-    this.state.currentElement = element;
-    this.state.context = analyzeFieldContext(element);
-    this.state.query = '';
-    // Reset dismissal and minimized state when focusing a new field
-    this.dismissedForCurrentInput = false;
-    this.isMinimized = false;
+    if (element !== this.state.currentElement) return;
+    if (document.activeElement !== element) return;
     
     // Check if field already has value (might be from autocomplete)
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
       if (element.value.length > 0) {
         // Field has value - wait a bit to see if it's from autocomplete
         setTimeout(() => {
+          if (element !== this.state.currentElement) return;
+          if (document.activeElement !== element) return;
           // If value changed after focus, it's likely autocomplete
           if (element.value.length > 0 && !this.lastInputWasHuman) {
             return; // Don't show overlay for autocompleted fields
@@ -453,9 +498,15 @@ class MacroAutocomplete {
     
     // Empty field - show suggestions after a short delay to avoid flicker
     setTimeout(() => {
-      if (element === this.state.currentElement && (!element || (element instanceof HTMLInputElement && element.value.length === 0))) {
-        this.updateSuggestions();
+      if (element !== this.state.currentElement) return;
+      if (document.activeElement !== element) return;
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        if (element.value.length === 0) {
+          this.updateSuggestions();
+        }
+        return;
       }
+      this.updateSuggestions();
     }, 200);
   }
 
@@ -509,6 +560,7 @@ class MacroAutocomplete {
   private checkTabCompletion(query: string): void {
     if (!query || query.length < 2) {
       this.state.tabCompletionMatch = null;
+      this.updateInlineSuggestion();
       return;
     }
 
@@ -518,6 +570,7 @@ class MacroAutocomplete {
     });
 
     this.state.tabCompletionMatch = match || null;
+    this.updateInlineSuggestion();
   }
 
   /**
@@ -592,7 +645,7 @@ class MacroAutocomplete {
    * Handle keyboard events
    */
   private handleKeyDown(e: KeyboardEvent): void {
-    if (!this.state.active) return;
+    if (!this.state.active || this.isMinimized) return;
 
     switch (e.key) {
       case 'ArrowDown':
@@ -760,8 +813,12 @@ class MacroAutocomplete {
    */
   private showOverlay(): void {
     if (!this.state.currentElement) return;
+    if (document.activeElement !== this.state.currentElement) return;
 
     this.state.active = true;
+    if (!this.userExpandedForCurrentInput) {
+      this.isMinimized = false;
+    }
     const position = this.calculatePosition(this.state.currentElement);
     this.renderOverlay(position);
   }
@@ -776,6 +833,7 @@ class MacroAutocomplete {
       this.overlayContainer.remove();
       this.overlayContainer = null;
     }
+    this.clearInlineSuggestion();
   }
 
   /**
@@ -791,6 +849,9 @@ class MacroAutocomplete {
    */
   private toggleMinimize(): void {
     this.isMinimized = !this.isMinimized;
+    if (!this.isMinimized) {
+      this.userExpandedForCurrentInput = true;
+    }
     if (this.state.active && this.state.currentElement) {
       const position = this.calculatePosition(this.state.currentElement);
       this.renderOverlay(position);
@@ -813,8 +874,8 @@ class MacroAutocomplete {
   private calculatePosition(element: HTMLElement): { top: number; left: number } {
     const rect = element.getBoundingClientRect();
     return {
-      top: rect.bottom + window.scrollY + 4,
-      left: rect.left + window.scrollX,
+      top: rect.bottom + 4,
+      left: rect.left,
     };
   }
 
@@ -959,7 +1020,7 @@ class MacroAutocomplete {
     
     const icon = document.createElement('div');
     icon.className = 'minimized-icon';
-    icon.innerHTML = '✨';
+    icon.innerHTML = 'M';
     icon.title = 'Click to expand macro suggestions';
     icon.onclick = (e) => {
       e.stopPropagation();
@@ -971,12 +1032,119 @@ class MacroAutocomplete {
   }
 
   /**
+   * Update inline suggestion ghost text for input/textarea elements
+   */
+  private updateInlineSuggestion(): void {
+    const element = this.state.currentElement;
+    if (!this.isEnabled || this.dismissedForCurrentInput) {
+      this.clearInlineSuggestion();
+      return;
+    }
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+      this.clearInlineSuggestion();
+      return;
+    }
+
+    if (!this.state.tabCompletionMatch || !this.state.query) {
+      this.clearInlineSuggestion();
+      return;
+    }
+
+    const value = element.value;
+    const start = element.selectionStart ?? value.length;
+    const end = element.selectionEnd ?? start;
+    if (start !== end) {
+      this.clearInlineSuggestion();
+      return;
+    }
+
+    const textBeforeCursor = value.substring(0, start);
+    const textAfterCursor = value.substring(end);
+    const query = this.state.query;
+    const queryStart = textBeforeCursor.length - query.length;
+    if (queryStart < 0) {
+      this.clearInlineSuggestion();
+      return;
+    }
+
+    const macroContent = this.state.tabCompletionMatch.content;
+    if (!macroContent.toLowerCase().startsWith(query.toLowerCase())) {
+      this.clearInlineSuggestion();
+      return;
+    }
+
+    const remainder = macroContent.substring(query.length);
+    if (!remainder) {
+      this.clearInlineSuggestion();
+      return;
+    }
+
+    if (!this.inlineSuggestionContainer || !this.inlineSuggestionContent) {
+      this.inlineSuggestionContainer = document.createElement('div');
+      this.inlineSuggestionContainer.className = 'macro-inline-suggestion';
+      this.inlineSuggestionContent = document.createElement('div');
+      this.inlineSuggestionContent.className = 'macro-inline-suggestion-content';
+      this.inlineSuggestionContainer.appendChild(this.inlineSuggestionContent);
+      document.body.appendChild(this.inlineSuggestionContainer);
+    }
+
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    const isTextarea = element instanceof HTMLTextAreaElement;
+
+    this.inlineSuggestionContainer.style.top = `${rect.top}px`;
+    this.inlineSuggestionContainer.style.left = `${rect.left}px`;
+    this.inlineSuggestionContainer.style.width = `${rect.width}px`;
+    this.inlineSuggestionContainer.style.height = `${rect.height}px`;
+    this.inlineSuggestionContainer.style.padding = style.padding;
+    this.inlineSuggestionContainer.style.borderRadius = style.borderRadius;
+    this.inlineSuggestionContainer.style.font = style.font;
+    this.inlineSuggestionContainer.style.letterSpacing = style.letterSpacing;
+    this.inlineSuggestionContainer.style.textAlign = style.textAlign;
+    this.inlineSuggestionContainer.style.lineHeight = style.lineHeight;
+    this.inlineSuggestionContainer.style.textTransform = style.textTransform;
+    this.inlineSuggestionContainer.style.textIndent = style.textIndent;
+    this.inlineSuggestionContainer.style.boxSizing = style.boxSizing;
+
+    this.inlineSuggestionContent.style.whiteSpace = isTextarea ? 'pre-wrap' : 'pre';
+    this.inlineSuggestionContent.style.wordBreak = isTextarea ? 'break-word' : 'normal';
+    this.inlineSuggestionContent.style.transform = `translate(${-element.scrollLeft}px, ${-element.scrollTop}px)`;
+
+    this.inlineSuggestionContent.textContent = '';
+    const baseSpan = document.createElement('span');
+    baseSpan.className = 'ghost-base';
+    baseSpan.textContent = textBeforeCursor;
+    const ghostSpan = document.createElement('span');
+    ghostSpan.className = 'ghost-suffix';
+    ghostSpan.textContent = remainder;
+    const tailSpan = document.createElement('span');
+    tailSpan.className = 'ghost-base';
+    tailSpan.textContent = textAfterCursor;
+
+    this.inlineSuggestionContent.appendChild(baseSpan);
+    this.inlineSuggestionContent.appendChild(ghostSpan);
+    this.inlineSuggestionContent.appendChild(tailSpan);
+  }
+
+  /**
+   * Clear inline suggestion element
+   */
+  private clearInlineSuggestion(): void {
+    if (this.inlineSuggestionContainer) {
+      this.inlineSuggestionContainer.remove();
+      this.inlineSuggestionContainer = null;
+      this.inlineSuggestionContent = null;
+    }
+  }
+
+  /**
    * Enable/disable autocomplete
    */
   public setEnabled(enabled: boolean): void {
     this.isEnabled = enabled;
     if (!enabled) {
       this.hideOverlay();
+      this.clearInlineSuggestion();
     }
   }
 }

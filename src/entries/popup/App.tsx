@@ -41,6 +41,7 @@ function App() {
   const [importMerge, setImportMerge] = useState(true);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [autocompleteEnabled, setAutocompleteEnabled] = useState(true);
+  const [careerAutofillEnabled, setCareerAutofillEnabled] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -150,14 +151,24 @@ function App() {
   };
 
   const loadSettings = async () => {
-    const result = await chrome.storage.sync.get('autocompleteEnabled');
+    const result = await chrome.storage.sync.get([
+      "autocompleteEnabled",
+      "careerAutofillEnabled",
+    ]);
     setAutocompleteEnabled(result.autocompleteEnabled !== false);
+    setCareerAutofillEnabled(result.careerAutofillEnabled !== false);
   };
 
-  const saveSettings = async (enabled: boolean) => {
+  const saveAutocompleteSetting = async (enabled: boolean) => {
     await chrome.storage.sync.set({ autocompleteEnabled: enabled });
     setAutocompleteEnabled(enabled);
     showToast(enabled ? "Smart suggestions enabled" : "Smart suggestions disabled", "positive");
+  };
+
+  const saveCareerAutofillSetting = async (enabled: boolean) => {
+    await chrome.storage.sync.set({ careerAutofillEnabled: enabled });
+    setCareerAutofillEnabled(enabled);
+    showToast(enabled ? "Career autofill enabled" : "Career autofill disabled", "positive");
   };
 
   const handleOpenDialog = (macro?: Macro) => {
@@ -609,7 +620,14 @@ function App() {
                   <div style={{ fontWeight: "500", marginBottom: "4px" }}>Auto-suggest & Tab Completion</div>
                   <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Show macro suggestions as you type</div>
                 </div>
-                <input type="checkbox" checked={autocompleteEnabled} onChange={(e) => saveSettings(e.target.checked)} style={{ width: "20px", height: "20px", cursor: "pointer" }} />
+                <input type="checkbox" checked={autocompleteEnabled} onChange={(e) => saveAutocompleteSetting(e.target.checked)} style={{ width: "20px", height: "20px", cursor: "pointer" }} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: "500", marginBottom: "4px" }}>Career Autofill</div>
+                  <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Auto-fill job application forms when detected</div>
+                </div>
+                <input type="checkbox" checked={careerAutofillEnabled} onChange={(e) => saveCareerAutofillSetting(e.target.checked)} style={{ width: "20px", height: "20px", cursor: "pointer" }} />
               </div>
               <div style={{ marginTop: "8px", paddingTop: "16px", borderTop: "1px solid var(--border)" }}>
                 <div style={{ fontSize: "12px", fontWeight: "600", marginBottom: "8px" }}>Features:</div>

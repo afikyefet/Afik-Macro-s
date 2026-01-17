@@ -17,6 +17,7 @@ const manifest = {
     {
       js: ["src/entries/contentScript/primary/main.tsx"],
       matches: ["*://*/*"],
+      all_frames: true,
     },
   ],
   host_permissions: ["*://*/*"],

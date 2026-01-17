@@ -1,0 +1,41 @@
+<div id="form" dir="ltr">
+    <form class="Form" action="https://app.civi.co.il/promo/id=836698&amp;src=18403" method="post" novalidate=""
+        onsubmit="OnSubmitFormHandler(this,event)" onkeydown="OnKeyDownHandler(this,event)"
+        enctype="multipart/form-data">
+        <input type="hidden" name="Form_submitted" value="1">
+        <div class="field-error"></div>
+        <h2 role="heading">Submit application</h2>
+        <div class="field textbox" data-id="name" onchange="activateSubmit(this)" oninput="activateSubmit(this); "><span
+                class="label"><span class="required">*</span><span>Full name:</span> </span><input type="text" id="name"
+                name="name" class="textbox-input" dir="rtl" maxlength="101" value="" oninput="">
+            <div class="field-error"></div>
+        </div>
+        <div class="field textbox" data-id="phone" onchange="activateSubmit(this)" oninput="activateSubmit(this); ">
+            <span class="label"><span class="required">*</span><span>Phone:</span> </span><input type="tel" id="phone"
+                name="phone" class="textbox-input" dir="ltr" maxlength="20" value="" oninput="">
+            <div class="field-error"></div>
+        </div>
+        <div class="field textbox" data-id="email" onchange="activateSubmit(this)" oninput="activateSubmit(this); ">
+            <span class="label"><span class="required">*</span><span>Email:</span> </span><input type="email" id="email"
+                name="email" class="textbox-input" dir="ltr" maxlength="100" value="" oninput="">
+            <div class="field-error"></div>
+        </div>
+        <div class="field file" data-id="cv" onchange="activateSubmit(this)" oninput="activateSubmit(this); "><span
+                class="label"><span class="required">*</span><span>CV:</span> </span>
+            <div class="fia-file-drop-area" ondragover="fiaHandleDragOver(event,this)"
+                ondragleave="fiaHandleDragLeave(event,this)" ondrop="fiaHandleDrop(event,this)">
+                <span>Drag &amp; drop a file here to upload</span>
+                <div class="fia-or">or</div>
+                <div class="action-button secondary-button fia-upload-file-button"
+                    onclick="getCousinByQuery(this,&quot;field&quot;,&quot;.fia-file-input&quot;).click();"
+                    onfocus="event.preventDefault();">Select file</div>
+                <input type="file" name="cv" class="fia-file-input" id="cv" onchange="fiaUpdateFileLabel(this)">
+                <span class="fia-file-label" style="">Afik_Yefet_Resume_2026.docx</span>
+            </div>
+            <div class="field-error"></div>
+        </div>
+        <div class="buttons">
+            <input type="submit" class="action-button" value="Submit application">
+        </div>
+    </form>
+</div>
